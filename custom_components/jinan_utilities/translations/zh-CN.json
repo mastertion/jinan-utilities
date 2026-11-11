@@ -1,0 +1,80 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "济南公用事业",
+        "description": "选择要接入的服务和登录方式。**水费（济南水务）推荐「仅手机号直连」**：实测网厅只校验注册手机号，填完就能看到余额。**「手机号 + 短信验证码」也已调通**，想走正规登录流程可以选它（无需图形码）。密码登录因网厅图形验证码服务故障暂不可用。燃气目前只支持短信或手动 token。",
+        "data": {
+          "service": "服务类型",
+          "login_method": "登录方式"
+        }
+      },
+      "phone": {
+        "title": "输入手机号",
+        "description": "输入港华燃气 / 济南水务网上营业厅的**注册手机号**。水费用「仅手机号直连」时，这个手机号同时也是接口的 openid，必须是绑定了给水号的那个号码。",
+        "data": {
+          "phone": "手机号"
+        }
+      },
+      "captcha": {
+        "title": "输入图形验证码",
+        "description": "**如果下方图片没有显示，请[点此打开图形验证码图片]({captcha_url})**\n\n![图形验证码]({captcha_url})\n\n请输入上图中的 4 位字符后点「提交」，系统会向你的手机号发送短信验证码。若提示验证码错误，页面会自动换一张新图，请按新图重新输入。\n\n{error}",
+        "data": {
+          "kaptcha": "图形验证码（4 位）"
+        }
+      },
+      "sms": {
+        "title": "输入短信验证码",
+        "description": "请输入手机收到的短信验证码（燃气为 5 位；水务不需要图形码）。若没收到，勾选「重新发送短信」后点提交即可重发：燃气会回到图形验证码步骤，水务直接重发短信。服务端提示「发送次数过多」时需等待限流解除。\n\n水费若一直收不到，可直接删除本流程改用「仅手机号直连」，效果相同且无需验证码。\n\n{error}",
+        "data": {
+          "smscode": "短信验证码",
+          "resend": "重新发送短信"
+        }
+      },
+      "water_captcha": {
+        "title": "水务密码登录",
+        "description": "**注意：济南水务网厅的图形验证码接口当前服务端故障**（返回 The type initializer for 'Gdip' threw an exception，服务端缺 GDI+ 组件），这条路通常走不通。请删除本流程，改用「仅手机号直连」或「手机号 + 短信验证码」。\n\n**如果下方图片没有显示，请[点此打开图形验证码图片]({captcha_url})**\n\n![图形验证码]({captcha_url})\n\n{error}",
+        "data": {
+          "password": "网厅登录密码",
+          "kaptcha": "图形验证码"
+        }
+      },
+      "manual": {
+        "title": "手动填入 access_token（兜底）",
+        "description": "**水费**：实测网厅不校验 token，通常不需要这一步，请优先用「仅手机号直连」。\n\n**燃气**：电脑浏览器打开 https://wt.shandongtowngas.com.cn/ 并用已注册账号登录 → F12 → 网络(Network) → 刷新页面 → 点开任意 `/openapi/uv1/...` 请求 → 在 Query String 里复制 `token` 的值，粘贴到下面。\n\n**水费**：浏览器打开 http://wt.jnwater.com.cn/shoufeizjj3/WT/index.html 并登录 → F12 → 网络 → 任意 `api/WxProgramApi/` 请求 → 请求标头里复制 `accesstoken`，可一并填 `refreshtoken`。\n\n{error}",
+        "data": {
+          "access_token": "access_token / accesstoken",
+          "refresh_token": "refresh_token / refreshtoken（水务可选）"
+        }
+      },
+      "pick_user": {
+        "title": "选择燃气户号",
+        "data": {
+          "user_code": "户号"
+        }
+      },
+      "pick_gs": {
+        "title": "选择给水号",
+        "data": {
+          "gs": "给水号"
+        }
+      }
+    },
+    "error": {
+      "send_sms_failed": "短信发送失败：{error}",
+      "login_failed": "登录失败：{error}",
+      "network": "网络错误：{error}",
+      "need_kaptcha": "{error}",
+      "captcha_failed": "图形验证码获取失败：{error}",
+      "no_subs": "该手机号名下未找到户号",
+      "query_failed": "查询失败：{error}",
+      "need_sms": "{error}",
+      "need_token": "{error}",
+      "manual_failed": "token 校验失败：{error}"
+    },
+    "abort": {
+      "water_no_bind": "该手机号未绑定给水号，或不是网厅注册手机号，请先在济南水务微网厅绑定",
+      "already_configured": "该户号已配置过"
+    }
+  }
+}

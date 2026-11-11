@@ -1,0 +1,12 @@
+{
+  "domain": "jinan_utilities",
+  "name": "济南公用事业 (济南燃气/水务)",
+  "codeowners": ["@mastertion"],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/mastertion/jinan-utilities",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/mastertion/jinan-utilities/issues",
+  "requirements": [],
+  "version": "0.1.0"
+}

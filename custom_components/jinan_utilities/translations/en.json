@@ -1,0 +1,80 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Jinan Utilities",
+        "description": "Choose the service and login method. For water (Jinan Water), **Phone only** is recommended: only the registered mobile number is needed. **Mobile + SMS code** also works (no image captcha required). Password login is currently unavailable because the portal image-captcha service is broken. Gas supports SMS or a manually supplied token.",
+        "data": {
+          "service": "Service",
+          "login_method": "Login method"
+        }
+      },
+      "phone": {
+        "title": "Mobile number",
+        "description": "Enter the mobile number registered with the gas / water online portal. For water this is also the openid used by the API.",
+        "data": {
+          "phone": "Mobile number"
+        }
+      },
+      "captcha": {
+        "title": "Image captcha",
+        "description": "**If the image does not appear, [open it here]({captcha_url})**\n\n![captcha]({captcha_url})\n\nEnter the 4 characters and submit; an SMS code will be sent.\n\n{error}",
+        "data": {
+          "kaptcha": "Image captcha (4 chars)"
+        }
+      },
+      "sms": {
+        "title": "SMS code",
+        "description": "Enter the SMS code you received (gas: 5 digits; water needs no image captcha). Tick resend to send again. If water SMS never arrives, use Phone only instead - same result.\n\n{error}",
+        "data": {
+          "smscode": "SMS code",
+          "resend": "Resend SMS"
+        }
+      },
+      "water_captcha": {
+        "title": "Water portal password login",
+        "description": "**The Jinan Water image-captcha service is currently broken** (server-side GDI+ initialization failure). Please use Phone only or Mobile + SMS code instead.\n\n**If the image does not appear, [open it here]({captcha_url})**\n\n![captcha]({captcha_url})\n\n{error}",
+        "data": {
+          "password": "Portal password",
+          "kaptcha": "Image captcha"
+        }
+      },
+      "manual": {
+        "title": "Enter access_token manually (fallback)",
+        "description": "Water: the portal does not validate the token, so prefer Phone only. Gas: sign in at https://wt.shandongtowngas.com.cn/ , open DevTools Network, copy the token query parameter from any /openapi/uv1/ request.\n\n{error}",
+        "data": {
+          "access_token": "access_token / accesstoken",
+          "refresh_token": "refresh_token (optional)"
+        }
+      },
+      "pick_user": {
+        "title": "Select gas account",
+        "data": {
+          "user_code": "Account number"
+        }
+      },
+      "pick_gs": {
+        "title": "Select water account",
+        "data": {
+          "gs": "Account number"
+        }
+      }
+    },
+    "error": {
+      "send_sms_failed": "SMS failed: {error}",
+      "login_failed": "Login failed: {error}",
+      "network": "Network error: {error}",
+      "need_kaptcha": "{error}",
+      "captcha_failed": "Captcha unavailable: {error}",
+      "no_subs": "No account found for this number",
+      "query_failed": "Query failed: {error}",
+      "need_sms": "{error}",
+      "need_token": "{error}",
+      "manual_failed": "Token validation failed: {error}"
+    },
+    "abort": {
+      "water_no_bind": "No water account bound to this number, or the number is not registered",
+      "already_configured": "This account is already configured"
+    }
+  }
+}
