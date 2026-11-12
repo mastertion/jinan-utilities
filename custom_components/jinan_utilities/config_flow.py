@@ -47,14 +47,34 @@ from .const import (
 SERVICE_SCHEMA = vol.Schema({
     vol.Required(CONF_SERVICE, default=SERVICE_GAS): vol.In(
         {SERVICE_GAS: "燃气（山东港华）", SERVICE_WATER: "水费（济南水务）"}),
-    vol.Required(CONF_LOGIN_METHOD, default=METHOD_PHONE): vol.In({
-        METHOD_WECHAT: "微信扫码授权（燃气，推荐·不用短信·全自动续期）",
-        METHOD_PHONE: "仅手机号直连（济南水务，推荐）",
-        METHOD_SMS: "手机号 + 短信验证码",
-        METHOD_PASSWORD: "密码登录（水务网厅图形码故障，暂不可用）",
-        METHOD_TOKEN: "粘贴 PC 网厅链接 / 手动 token（旧版燃气）",
-    }),
 })
+
+# 登录方式按服务类型分开显示。HA 配置流不支持同一表单内字段联动，
+# 所以拆成「先选服务 → 再选该服务专属的登录方式」两步。
+GAS_METHODS = {
+    METHOD_WECHAT: "微信扫码授权（推荐·不用短信·自动续期）",
+    METHOD_TOKEN: "粘贴 PC 网厅链接 / 手动 token（旧版）",
+    METHOD_SMS: "手机号 + 短信验证码（官网也收不到，仅供参考）",
+}
+WATER_METHODS = {
+    METHOD_PHONE: "仅手机号直连（推荐）",
+    METHOD_SMS: "手机号 + 短信验证码",
+    METHOD_PASSWORD: "密码登录（网厅图形码故障，暂不可用）",
+    METHOD_TOKEN: "手动填入 access_token",
+}
+GAS_DEFAULT_METHOD = METHOD_WECHAT
+WATER_DEFAULT_METHOD = METHOD_PHONE
+
+
+def _method_schema(service: str) -> vol.Schema:
+    """按所选服务返回专属登录方式下拉框."""
+    if service == SERVICE_GAS:
+        options, default = GAS_METHODS, GAS_DEFAULT_METHOD
+    else:
+        options, default = WATER_METHODS, WATER_DEFAULT_METHOD
+    return vol.Schema({
+        vol.Required(CONF_LOGIN_METHOD, default=default): vol.In(options)
+    })
 PHONE_SCHEMA = vol.Schema({vol.Required(CONF_PHONE): str})
 SMS_SCHEMA = vol.Schema({
     vol.Optional("smscode", default=""): str,
@@ -90,19 +110,41 @@ class JinanUtilitiesConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self.org_code: str | None = None
 
     async def async_step_user(self, user_input=None) -> FlowResult:
+        """第一步：只选服务类型."""
         if user_input is not None:
             self.service = user_input[CONF_SERVICE]
-            self.login_method = user_input.get(CONF_LOGIN_METHOD, METHOD_SMS)
+            return await self.async_step_method()
+        return self.async_show_form(step_id="user", data_schema=SERVICE_SCHEMA)
+
+    async def async_step_method(self, user_input=None) -> FlowResult:
+        """第二步：只列出当前服务支持的登录方式."""
+        if user_input is not None:
+            allowed = (
+                GAS_METHODS if self.service == SERVICE_GAS else WATER_METHODS
+            )
+            default = (
+                GAS_DEFAULT_METHOD if self.service == SERVICE_GAS
+                else WATER_DEFAULT_METHOD
+            )
+            # 防御：旧流程或手工提交里带了不匹配的登录方式时回退到推荐项
+            method = user_input.get(CONF_LOGIN_METHOD, default)
+            self.login_method = method if method in allowed else default
             if self.login_method == METHOD_WECHAT:
-                # 微信 H5 授权只对燃气有效；选了水费就回退到手机号直连
-                if self.service == SERVICE_GAS:
-                    return await self.async_step_wechat()
-                self.login_method = METHOD_PHONE
-            # 燃气登录页只有短信方式，水务专用方式自动回退
-            if self.service == SERVICE_GAS and self.login_method in (METHOD_PASSWORD, METHOD_PHONE):
+                return await self.async_step_wechat()
+            if self.service == SERVICE_GAS and self.login_method in (
+                METHOD_PASSWORD, METHOD_PHONE
+            ):
                 self.login_method = METHOD_SMS
             return await self.async_step_phone()
-        return self.async_show_form(step_id="user", data_schema=SERVICE_SCHEMA)
+        service_label = (
+            "燃气（山东港华）" if self.service == SERVICE_GAS
+            else "水费（济南水务）"
+        )
+        return self.async_show_form(
+            step_id="method",
+            data_schema=_method_schema(self.service),
+            description_placeholders={"service": service_label},
+        )
 
     # ---------------- 手机号 ----------------
     async def async_step_phone(self, user_input=None) -> FlowResult:

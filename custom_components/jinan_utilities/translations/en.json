@@ -3,9 +3,15 @@
     "step": {
       "user": {
         "title": "Jinan Utilities",
-        "description": "Choose the service and login method. For gas (Shandong Towngas), **WeChat authorization is recommended**: no SMS needed, authorize once in WeChat and the balance refreshes every 30 minutes. For water (Jinan Water), **Phone only** is recommended: only the registered mobile number is needed. Mobile + SMS code also works. Password login is unavailable because the portal image-captcha service is broken.",
+        "description": "Choose the service to add. Gas (Shandong Towngas) uses WeChat authorization without any SMS; water (Jinan Water) only needs the registered mobile number. The next step shows only the login methods supported by the service you pick here.",
         "data": {
-          "service": "Service",
+          "service": "Service"
+        }
+      },
+      "method": {
+        "title": "Choose a login method",
+        "description": "Selected: **{service}**. Only the login methods supported by this service are listed below.\n\nFor gas, WeChat authorization is recommended: authorize once, then the balance refreshes and the token renews automatically without SMS. The SMS-code option is kept for troubleshooting only (the official portal also fails to deliver the code).\n\nFor water, Phone only is recommended: just the registered mobile number is needed.\n\nTo switch service, cancel this flow and add the integration again.\n\n{error}",
+        "data": {
           "login_method": "Login method"
         }
       },
