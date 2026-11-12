@@ -25,7 +25,7 @@
       },
       "sms": {
         "title": "SMS code",
-        "description": "Enter the SMS code you received (gas: 5 digits; water needs no image captcha). Tick resend to send again. If water SMS never arrives, use Phone only instead - same result.\n\n{error}",
+        "description": "Enter the SMS code you received (gas: 5 digits; water needs no image captcha). Tick resend to send again.\n\n{sms_status}\n\nIf water SMS never arrives, use Phone only instead - same result.\n\n{error}",
         "data": {
           "smscode": "SMS code",
           "resend": "Resend SMS"
@@ -45,6 +45,13 @@
         "data": {
           "access_token": "access_token / accesstoken",
           "refresh_token": "refresh_token (optional)"
+        }
+      },
+      "org": {
+        "title": "Select gas company",
+        "description": "The portal exposes two organisations; picking the wrong one can make the SMS silently fail. Choose the company shown on your gas bill / WeChat account. If no SMS arrives, try the other one.\n\n{error}",
+        "data": {
+          "org_code": "Company (orgCode / stdCode)"
         }
       },
       "pick_user": {

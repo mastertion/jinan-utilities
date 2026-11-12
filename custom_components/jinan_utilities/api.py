@@ -16,6 +16,8 @@ from .const import (
     GAS_API_BASE,
     GAS_CLIENT_ID,
     GAS_LOGIN_BASE,
+    GAS_OAUTH_REDIRECT,
+    GAS_ORGS_FALLBACK,
     GAS_REDIRECT_URI,
     WATER_BASE,
     WATER_COOKIE,
@@ -71,10 +73,15 @@ class GasClient:
         self.session = session
         self.token: str | None = None
         self.kaptcha: str = ""
-        # 官网 SPA 用 queryOrgs 返回的第一个 orgCode 作为 stdCode
+        # 官网 SPA 用 queryOrgs 的 orgCode 作为 stdCode；实测有两个组织，
+        # 不同组织可能走不同短信通道，因此由配置流让用户选，不再写死第一个。
         self.std_code: str = "10401_JNGH0105"
         # /login 页面实际渲染出来的 stdCode（必须非空，否则短信不会真发）
         self.page_std_code: str | None = None
+        # 本次会话使用的完整 authorize URL，登录换 code 时必须复用它
+        self.authorize_url: str | None = None
+        self.last_sms_result: dict[str, Any] | None = None
+        self._last_sms_at: float = 0.0
 
     def _get(self, url: str, **kw):
         """aiohttp 的 session.get() 本身是异步上下文管理器，不能再包一层 async."""
@@ -85,56 +92,86 @@ class GasClient:
         headers = {"User-Agent": UA, **kw.pop("headers", {})}
         return self.session.post(url, headers=headers, **kw)
 
-    async def prepare_session(self) -> None:
-        """按官网真实跳转链建立会话.
-
-        关键：/oauth/authorize 必须带 &stdCode={orgCode}，服务端才会把组织编码
-        写进 JSESSIONID 会话，/login 才会渲染 var stdCode = '10401_JNGH0105'。
-        缺了这个参数页面是 var stdCode = null —— 此时短信接口会返回
-        {"stat":1,"data":"发送成功"} 但静默不投递（服务端按会话里的
-        组织编码选短信通道，会话里是 null 就没有通道）。
-        同时必须带网厅域名的 Referer，否则 WAF 返回 403 拦截页。
-        """
-        headers = {"Referer": GAS_WEB_REFERER}
-        # 1) 先取组织编码（不同子公司短信通道不同，不能只写死）
+    async def query_orgs(self) -> list[dict]:
+        """列出可选组织（orgCode 即 stdCode）。接口不可用时用实测兜底值."""
         try:
             async with self._get(
                 f"{GAS_API_BASE}/openapi/uv1/org/queryOrgs",
                 params={"seq": _seq(), "client_id": GAS_CLIENT_ID},
-                headers=headers,
+                headers={"Referer": GAS_WEB_REFERER},
             ) as resp:
-                orgs = (await resp.json(content_type=None)).get("datas") or []
-            if orgs and orgs[0].get("orgCode"):
-                self.std_code = str(orgs[0]["orgCode"])
-        except (aiohttp.ClientError, ValueError, TypeError) as err:
-            _LOGGER.debug("gas queryOrgs failed, keep default: %s", err)
+                data = await resp.json(content_type=None)
+            orgs = [
+                {"orgCode": str(o["orgCode"]),
+                 "orgName": str(o.get("orgName") or o["orgCode"])}
+                for o in (data.get("datas") or []) if o.get("orgCode")
+            ]
+            if orgs:
+                return orgs
+        except (aiohttp.ClientError, ValueError, TypeError, KeyError) as err:
+            _LOGGER.debug("gas queryOrgs failed, use fallback: %s", err)
+        return [dict(o) for o in GAS_ORGS_FALLBACK]
 
-        # 2) 带 stdCode 建立 OAuth 会话
-        authorize = (
+    def _authorize_url(self, std_code: str, official: bool = True) -> str:
+        """官网 iframe 的真实 authorize；official=False 是旧版直跳网厅的回退链."""
+        if official:
+            return (
+                f"{GAS_LOGIN_BASE}/oauth/authorize?client_id={GAS_CLIENT_ID}"
+                "&scope=read%20write&response_type=code"
+                f"&redirect_uri={quote(GAS_OAUTH_REDIRECT, safe='')}"
+                f"&stdCode={quote(std_code, safe='')}"
+            )
+        return (
             f"{GAS_LOGIN_BASE}/oauth/authorize?client_id={GAS_CLIENT_ID}"
             f"&redirect_uri={quote(GAS_REDIRECT_URI, safe='')}"
             "&response_type=code&scope=server"
-            f"&stdCode={quote(self.std_code, safe='')}"
+            f"&stdCode={quote(std_code, safe='')}"
         )
-        async with self._get(authorize, headers=headers) as resp:
-            await resp.read()
-            _LOGGER.debug("gas oauth/authorize: %s", resp.status)
-        async with self._get(GAS_LOGIN_BASE + "/login", headers=headers) as resp:
-            html = await resp.text()
-            status = resp.status
-        _LOGGER.debug("gas /login: %s (%d bytes)", status, len(html))
 
-        # 3) 校验会话里确实注入了组织编码
-        m = re.search(r"var\s+stdCode\s*=\s*['\"]?([^;'\"]+)['\"]?\s*;", html)
-        rendered = m.group(1).strip() if m else "?"
-        self.page_std_code = (
-            rendered if rendered not in ("?", "null", "undefined") else None
-        )
-        _LOGGER.debug("gas stdCode: url=%s page=%s", self.std_code, rendered)
+    async def prepare_session(self, org_code: str | None = None) -> None:
+        """按官网真实跳转链建立会话.
+
+        关键：/oauth/authorize 必须带 &stdCode={orgCode}，服务端才会把组织编码
+        写进 JSESSIONID 会话，/login 才会渲染出非空的 var stdCode。
+        缺了这个参数页面是 null —— 此时短信接口会返回「发送成功」却静默不投递。
+        官网实际用隐藏 iframe 走微信域回调（scope=read write），这里优先复刻，
+        若该链拿不到 stdCode 再回退到旧版直跳网厅的 authorize。
+        同时必须带网厅域名的 Referer，否则 WAF 返回拦截页。
+        """
+        headers = {"Referer": GAS_WEB_REFERER}
+        if org_code:
+            self.std_code = org_code
+        else:
+            orgs = await self.query_orgs()
+            self.std_code = str(orgs[0]["orgCode"])
+
+        last_rendered = "?"
+        for official in (True, False):
+            authorize = self._authorize_url(self.std_code, official)
+            async with self._get(authorize, headers=headers) as resp:
+                await resp.read()
+                _LOGGER.debug("gas oauth/authorize(official=%s): %s",
+                              official, resp.status)
+            async with self._get(GAS_LOGIN_BASE + "/login", headers=headers) as resp:
+                html = await resp.text()
+                status = resp.status
+            _LOGGER.debug("gas /login(official=%s): %s (%d bytes)",
+                          official, status, len(html))
+            m = re.search(r"var\s+stdCode\s*=\s*['\"]?([^;'\"]+)['\"]?\s*;", html)
+            last_rendered = m.group(1).strip() if m else "?"
+            self.page_std_code = (
+                last_rendered
+                if last_rendered not in ("?", "null", "undefined") else None
+            )
+            if self.page_std_code:
+                self.authorize_url = authorize
+                break
+        _LOGGER.debug("gas stdCode: url=%s page=%s", self.std_code, last_rendered)
         if not self.page_std_code:
             raise GasError(
                 "登录会话缺少组织编码 stdCode（页面渲染 %s），短信不会真正发出；"
-                "请重试，或改用「手动填入 access_token」方式" % rendered
+                "请重试、换一个所属公司，或改用「手动填入 access_token」方式"
+                % last_rendered
             )
 
     async def get_captcha(self) -> bytes:
@@ -162,28 +199,58 @@ class GasClient:
         _LOGGER.debug("gas cap/validateVcode: %s", text[:80])
         return text.lower() == "true"
 
+    def sms_status(self, phone: str) -> str:
+        """给配置界面看的诊断信息；把服务端原文和会话上下文都摊开."""
+        r = self.last_sms_result
+        if not r:
+            return "本次尚未提交短信请求。"
+        masked = f"{phone[:3]}****{phone[-4:]}" if len(phone) >= 7 else "***"
+        return (
+            f"已向 {masked} 提交短信（组织 stdCode={r['std_code']}，"
+            f"服务端回复：{r['data']}）。\n\n"
+            "若 1 分钟后仍未收到：①确认这个手机号就是燃气账户登记号码；"
+            "②检查短信是否被手机安全软件/运营商拦截；"
+            "③换一个「所属公司」重试（两个组织走不同短信通道）；"
+            "④官网按手机号限流，短时间重复点「重新发送」会被拒绝，请等 10~30 分钟；"
+            "⑤仍不行可用「手动填入 access_token」完全绕开短信。"
+        )
+
     async def send_sms(self, phone: str, kaptcha: str | None) -> None:
         """新版官网短信接口.
 
-        wtLogin.js 里 getVcode() 用的是
+        wtLogin.js 的 getVcode() 用
         /ignore/sms/getVerificationCode/{phone}/undefined?stdCode={stdCode}
-        图形码不放在路径里，而是先调用 cap/validateVcode 校验。
-        旧版接口（路径里带图形码）已废弃：会返回「发送成功」但不发短信。
+        第二段是图形码位；传 undefined 时服务端**不校验**图形码（实测
+        cap/validateVcode 返回 false 也照样「发送成功」），传具体值才校验。
+        所以这里把图形码校验改成非阻断：避免因 HA 会话 cookie 与图片不同步
+        而把短信请求整个挡掉——那正是「点了发送却什么都没发生」的典型原因。
         """
         if not self.page_std_code:
             raise GasError("登录会话缺少 stdCode，请重新走一遍配置流程")
-        if kaptcha and not await self.validate_captcha(kaptcha):
-            raise GasError("图形验证码不正确，请按刷新后的新图片重新输入")
+        # 本地 60 秒限频：官网按手机号计数，反复重发会把当日额度打满
+        now = time.monotonic()
+        if self._last_sms_at and now - self._last_sms_at < 60:
+            wait = int(60 - (now - self._last_sms_at))
+            raise GasError(
+                f"60 秒内已提交过一次短信，请等待 {wait} 秒再试"
+                "（官网按手机号限流，短时间重复发送会被拒绝）"
+            )
+        if kaptcha:
+            try:
+                ok = await self.validate_captcha(kaptcha)
+                _LOGGER.debug("gas cap/validateVcode: %s (non-blocking)", ok)
+            except aiohttp.ClientError as err:
+                _LOGGER.debug("gas cap/validateVcode failed (ignored): %s", err)
         self.kaptcha = kaptcha or ""
-        # 不再尝试「不带 stdCode」的变体：那个变体会返回假成功且消耗发送次数
         url = (
             f"{GAS_LOGIN_BASE}/ignore/sms/getVerificationCode/{phone}/undefined"
             f"?stdCode={quote(self.page_std_code, safe='')}"
         )
+        # 与真实浏览器抓包一致的请求头
         headers = {
             "Referer": GAS_LOGIN_BASE + "/login",
             "X-Requested-With": "XMLHttpRequest",
-            "Accept": "*/*",
+            "Accept": "text/plain, */*; q=0.01",
         }
         _LOGGER.debug("gas send_sms %s****%s stdCode=%s",
                       phone[:3], phone[-4:], self.page_std_code)
@@ -194,9 +261,22 @@ class GasClient:
             obj = json.loads(text)
         except ValueError as err:
             raise GasError(f"短信接口返回异常: {text[:120]}") from err
+        data = str(obj.get("data") or text[:120])
+        self.last_sms_result = {
+            "std_code": self.page_std_code,
+            "stat": str(obj.get("stat")),
+            "data": data,
+        }
         if str(obj.get("stat")) != "1":
-            raise GasError(str(obj.get("data") or text[:120]))
-        _LOGGER.info("gas 短信已提交发送（会话 stdCode=%s）", self.page_std_code)
+            if "次数过多" in data:
+                raise GasError(
+                    f"官网短信限流：{data}。该手机号短时间内发送次数已达上限，"
+                    "请等待 10~30 分钟再试，或改用「手动填入 access_token」"
+                )
+            raise GasError(data)
+        self._last_sms_at = time.monotonic()
+        _LOGGER.info("gas 短信已提交发送（stdCode=%s, 服务端=%s）",
+                     self.page_std_code, data)
 
     async def _validate_sms(self, phone: str, sms: str) -> bool:
         url = f"{GAS_LOGIN_BASE}/ignore/sms/validateVcode"
@@ -230,30 +310,23 @@ class GasClient:
             ) as resp:
                 if resp.status >= 400:
                     raise GasError(f"登录失败 HTTP {resp.status}")
-        # OAuth 授权换 code
-        async with self._get(
-            f"{GAS_LOGIN_BASE}/oauth/authorize",
-            params={
-                "client_id": GAS_CLIENT_ID,
-                "response_type": "code",
-                "scope": "server",
-                "redirect_uri": GAS_REDIRECT_URI,
-            },
-            allow_redirects=False,
-        ) as resp:
+        # OAuth 授权换 code：必须复用建立会话时的完整 authorize URL，
+        # 官网 iframe 登录后就是重新请求同一个 URL 拿 302 + code。
+        authorize = self.authorize_url or self._authorize_url(self.std_code)
+        async with self._get(authorize, allow_redirects=False) as resp:
             loc = resp.headers.get("Location", "")
             if resp.status != 302 or "code=" not in loc:
                 raise GasError(f"OAuth 授权失败: HTTP {resp.status} {loc[:80]}")
         m = re.search(r"[?&]code=([^&]+)", loc)
         code = m.group(1)
-        # 换 token
+        # 换 token；redirect_uri 必须与 authorize 一致
         async with self._post(
             f"{GAS_API_BASE}/openapi/uv1/oauth/token",
             json={
                 "code": code,
                 "grant_type": "authorization_code",
-                "scope": "server",
-                "redirect_uri": GAS_REDIRECT_URI,
+                "scope": "read write",
+                "redirect_uri": GAS_OAUTH_REDIRECT,
             },
         ) as resp:
             data = await resp.json(content_type=None)

@@ -19,6 +19,7 @@ from .const import (
     CONF_GAS_TOKEN,
     CONF_GS,
     CONF_LOGIN_METHOD,
+    CONF_ORG_CODE,
     CONF_PHONE,
     CONF_SERVICE,
     CONF_USER_CODE,
@@ -73,6 +74,8 @@ class JinanUtilitiesConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self.water: WaterClient | None = None
         self.subs: list[dict] = []
         self.gs_list: list[dict] = []
+        self.orgs: list[dict] = []
+        self.org_code: str | None = None
 
     async def async_step_user(self, user_input=None) -> FlowResult:
         if user_input is not None:
@@ -96,7 +99,13 @@ class JinanUtilitiesConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             try:
                 if self.service == SERVICE_GAS:
                     self.gas = GasClient(session)
-                    await self.gas.prepare_session()
+                    # 实测 queryOrgs 返回两个组织，不同组织可能走不同短信通道；
+                    # 不再写死第一个，让用户按开户公司选。
+                    self.orgs = await self.gas.query_orgs()
+                    if len(self.orgs) > 1:
+                        return await self.async_step_org()
+                    self.org_code = str(self.orgs[0]["orgCode"])
+                    await self.gas.prepare_session(self.org_code)
                     return await self.async_step_captcha()
                 self.water = WaterClient(session)
                 if self.login_method == METHOD_PHONE:
@@ -119,6 +128,33 @@ class JinanUtilitiesConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="phone", data_schema=PHONE_SCHEMA, errors=errors,
             description_placeholders={"error": last_err}
+        )
+
+    # ---------------- 燃气选择所属公司（stdCode / 短信通道） ----------------
+    async def async_step_org(self, user_input=None) -> FlowResult:
+        """港华有两个组织，选错可能短信静默不投递，所以显式让用户选."""
+        errors = {}
+        last_err = ""
+        options = {
+            str(o["orgCode"]): f"{o.get('orgName') or o['orgCode']} ({o['orgCode']})"
+            for o in self.orgs
+        }
+        if user_input is not None:
+            try:
+                self.org_code = user_input[CONF_ORG_CODE]
+                await self.gas.prepare_session(self.org_code)
+                return await self.async_step_captcha()
+            except (GasError, aiohttp.ClientError) as err:
+                errors["base"] = "query_failed"
+                last_err = str(err)
+        return self.async_show_form(
+            step_id="org",
+            data_schema=vol.Schema({
+                vol.Required(CONF_ORG_CODE,
+                             default=str(self.orgs[0]["orgCode"])): vol.In(options)
+            }),
+            errors=errors,
+            description_placeholders={"error": last_err},
         )
 
     # ---------------- 手动填入 token（收不到短信时的兜底） ----------------
@@ -228,7 +264,7 @@ class JinanUtilitiesConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         try:
             # JSESSIONID 可能已过期（例如点了「重新发送」），重建带 stdCode 的会话
             if not self.gas.page_std_code:
-                await self.gas.prepare_session()
+                await self.gas.prepare_session(self.org_code)
             cap = await self.gas.get_captcha()
             if len(cap) < 500:
                 raise GasError("图形验证码图片为空，请重试")
@@ -261,7 +297,9 @@ class JinanUtilitiesConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     last_err = str(err)
                 return self.async_show_form(
                     step_id="sms", data_schema=SMS_SCHEMA, errors=errors,
-                    description_placeholders={"error": last_err},
+                    description_placeholders={
+                        "error": last_err, "sms_status": self._sms_status(),
+                    },
                 )
             sms = (user_input.get("smscode") or "").strip()
             if not sms:
@@ -284,8 +322,21 @@ class JinanUtilitiesConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 except aiohttp.ClientError as err:
                     errors["base"] = "network"
                     last_err = str(err)
-        return self.async_show_form(step_id="sms", data_schema=SMS_SCHEMA, errors=errors,
-                                    description_placeholders={"error": last_err})
+        return self.async_show_form(
+            step_id="sms", data_schema=SMS_SCHEMA, errors=errors,
+            description_placeholders={
+                "error": last_err, "sms_status": self._sms_status(),
+            },
+        )
+
+    def _sms_status(self) -> str:
+        """把服务端原文与会话上下文回显到界面，便于自助定位收不到短信."""
+        if self.service == SERVICE_GAS and self.gas:
+            return self.gas.sms_status(self.phone or "")
+        return (
+            "水务短信登录：若未收到，勾选「重新发送短信」。服务端提示"
+            "「当前手机号存在未失效的验证码」时，直接输入最新那条即可。"
+        )
     # ---------------- 燃气选户号 ----------------
     async def async_step_pick_user(self, user_input=None) -> FlowResult:
         errors = {}
