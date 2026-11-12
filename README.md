@@ -20,6 +20,12 @@
 
 把仓库里的 `custom_components/jinan_utilities/` 整个目录复制到 HA 的 `/config/custom_components/`，重启 HA，再添加集成即可。
 
+### 版本与更新
+
+- 当前发布版本 **`v0.2.0`**，GitHub Release 已发布；HA 市场 / HACS 靠 Release 识别新版本，`main` 分支上的代码与该 tag 一致。
+- 若曾用「手动安装」直接覆盖文件部署，市场里的「已安装版本」可能仍停在此前下载时的旧版本号，而实际运行代码已是最新。在市场里点一次**更新**即可让版本记录对齐（下载内容与当前一致），之后重启 HA。
+- Release 发布后 tag 不再移动，后续功能改动会走新版本号。
+
 ## 配置方式
 
 添加集成时分两步：**先选服务类型**，第二步的下拉框会**只列出该服务支持的登录方式**（燃气不再出现水费专用的方式，反之亦然）：
@@ -155,6 +161,7 @@ sign = md5(
 
 - 水费网厅的查询鉴权较弱，主要由**注册手机号**决定能查到哪些户档案。请妥善保管自己的手机号，不要把它写进公开配置或截图。
 - 本集成只在你的 HA 本机与网厅之间通信，不向任何第三方上传数据；仓库内不含任何真实手机号、token、密码或户主信息。
+- 工作区 `.workbuddy/tools/` 下的部署、抓包与 HA 连接辅助脚本含**本机明文密码**，属私有文件，**不要复制进仓库或提交到任何公开位置**；`.gitignore` 已对这些文件名与凭据 json 做防呆排除。若确需归档，先改成从环境变量或未入库的配置文件读取凭据。
 - 若网厅调整鉴权或接口，集成可能报错或数值不可用，届时请更新版本或改用手动抓包方式。
 
 ## 版本
@@ -168,3 +175,4 @@ sign = md5(
 - `0.2.0`：**燃气完整跑通**。新增微信公众号 H5 授权路径：配置流「微信扫码授权」支持粘贴回调链接 / code / localStorage JSON，自动 `accessToekn` 换 token；新增 `GasH5Client`（Bearer + MD5 签名 + 自动续期）；验证 `usersubs/queryBindList` → `charge/gasFeeBaseinfo` 取到 `availableBalance` / `feePayable`；针对 `refresh_token` 一次性轮换，把续期后的新 token 持久化回配置条目；新增「待交燃气费」传感器，燃气属性改白名单脱敏；四语文案与界面同步更新。水费功能不变。
 - `0.2.0+`（main）：修复配置页出现 **`Translation error: MALFORMED_ARGUMENT`**。原因是 HA 前端用 ICU MessageFormat 编译每条文案，而 `wechat` / `manual` 说明里的 JSON 示例 `{"access_token":"...","refresh_token":"..."}` 带裸花括号，被当成非法参数占位符；改为纯文字描述，并清理会被 ICU 当作转义符的 ASCII 单引号、`method` 步骤未提供的 `{error}` 占位符。新增 `tools/check_translations.py` 做防回归校验；四语文案全部通过 `intl-messageformat` 真实解析。功能不变。
 - `0.2.0+`（main）：**水费移除「密码登录」和「手动填入 access_token」两种登录方式**。密码登录依赖的网厅图形码接口服务端故障（GDI+ 初始化失败）永远走不通；而网关根本不校验 `accesstoken`，手机号直连即可查到余额，手动 token 也只是重复。配置流水费现在只列「仅手机号直连」（默认）与「手机号 + 短信验证码」两项；删除 `async_step_water_captcha`、`WATER_CAPTCHA_SCHEMA`、`METHOD_PASSWORD`、`WaterClient.get_captcha` / `login_with_password` 及其四语文案与相关说明。燃气的三种方式不受影响。
+- `0.2.0+`（main）：核对 git 同步状态（`main` / `origin/main` / tag `v0.2.0` 一致，Release `v0.2.0` 已发布且压缩包含最新代码）；补充「版本与更新」说明与隐私安全提示；`.gitignore` 增加凭据文件与含明文密码的本地部署脚本防呆排除。功能不变，tag 保持不变。

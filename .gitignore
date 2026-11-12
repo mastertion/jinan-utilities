@@ -5,3 +5,19 @@ __pycache__/
 .venv/
 .idea/
 .vscode/
+
+# 凭据与本机环境配置：公开仓库严禁提交
+*.env
+.env.*
+token.json
+gh_token.json
+gh_device.json
+router_token.json
+*flow.json
+# 工作区 .workbuddy/tools/ 下的部署 / 抓包脚本含 HA 明文密码，
+# 即使被误复制进仓库也要挡住，绝不入库
+ha_api.py
+ha_ws.py
+harun.py
+deploy_jinan.py
+rlogin.html
