@@ -80,7 +80,11 @@ PC 网厅的短信链路既然在官网自己也收不到，本项目改走**微
 **操作步骤**
 
 1. 添加集成时，服务选「燃气（山东港华）」，登录方式选「**微信扫码授权**」。
-2. 配置页会给出授权链接（`.../vcc-oauth/oauth/authorize2/union?clientid=jnghwechat&redirectUri=...__ha_capture.html`）。也可以用项目 `outputs/燃气微信授权_扫码.png` 的二维码，在**手机微信**里打开授权页。
+2. 配置页会给出授权链接（`.../vcc-oauth/oauth/authorize2/union?clientid=jnghwechat&redirectUri=...__ha_capture.html`），也可以直接扫下面的二维码，在**手机微信**里打开授权页：
+
+   ![微信授权二维码](assets/wechat_authorize_qr.png)
+
+   二维码内容就是该 union 授权短链；回调指向不执行任何 JS 的 `__ha_capture.html`，只为把 code 留在地址栏。
 3. 完成微信授权后，浏览器最终停在打不开的 `__ha_capture.html?code=xxxxx`（404 页面是正常的，它只负责把 code 留在地址栏）。
 4. **立刻复制地址栏里的整条链接**，粘贴到 HA 配置框提交。code 一次性、几分钟内有效，过期就重新扫码。
 5. HA 列出该微信绑定的燃气户号，选中即完成。之后自动生成「燃气账户余额」「待交燃气费」两个传感器。
