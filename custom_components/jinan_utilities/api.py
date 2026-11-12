@@ -8,7 +8,7 @@ import random
 import re
 import time
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import parse_qs, quote, urlparse
 
 import aiohttp
 
@@ -55,6 +55,53 @@ def _seq() -> str:
     )
 
 
+def parse_gas_credential(text: str) -> dict[str, str]:
+    """把用户粘贴的内容解析成 {code, token, refresh}.
+
+    短信收不到时的兜底入口。支持四种形态：
+    1. 微信公众号「复制链接」得到的完整 URL（带 tokenCode / code / token）；
+    2. 单独的 tokenCode / code（URL 片段或裸参数串）；
+    3. 浏览器 localStorage['token'] 的 JSON：{"access_token": ..., "refresh_token": ...}；
+    4. 裸 access_token 字符串。
+    """
+    raw = (text or "").strip()
+    out: dict[str, str] = {"code": "", "token": "", "refresh": ""}
+    if not raw:
+        return out
+
+    # 1) JSON（localStorage / F12 复制）
+    if raw.startswith("{"):
+        try:
+            obj = json.loads(raw)
+            out["token"] = str(obj.get("access_token") or obj.get("token") or "")
+            out["refresh"] = str(obj.get("refresh_token") or "")
+            if out["token"]:
+                return out
+        except ValueError:
+            pass
+
+    # 2) URL / query 片段；微信有时会把参数放在 fragment 后面
+    if "://" in raw or "?" in raw or "=" in raw:
+        candidate = raw if ("://" in raw or "?" in raw) else "https://x/?" + raw
+        parsed = urlparse(candidate)
+        qs = parse_qs(parsed.query + "&" + parsed.fragment, keep_blank_values=True)
+        for key in ("token", "access_token", "accesstoken"):
+            if qs.get(key) and qs[key][0]:
+                out["token"] = qs[key][0]
+        for key in ("tokenCode", "code"):
+            if qs.get(key) and qs[key][0]:
+                out["code"] = qs[key][0]
+        for key in ("refresh_token", "refreshtoken"):
+            if qs.get(key) and qs[key][0]:
+                out["refresh"] = qs[key][0]
+        if out["token"] or out["code"]:
+            return out
+
+    # 3) 裸 token
+    out["token"] = raw
+    return out
+
+
 class GasError(Exception):
     """燃气流程错误."""
 
@@ -72,6 +119,7 @@ class GasClient:
     def __init__(self, session: aiohttp.ClientSession) -> None:
         self.session = session
         self.token: str | None = None
+        self.refresh_token: str | None = None
         self.kaptcha: str = ""
         # 官网 SPA 用 queryOrgs 的 orgCode 作为 stdCode；实测两个组织
         # 均属「山东港华燃气有限公司」（其一为高新客户服务中心），
@@ -290,6 +338,51 @@ class GasClient:
         _LOGGER.debug("gas validateVcode: %s", text[:200])
         return text.lower() == "true"
 
+    async def exchange_code(self, code: str) -> dict[str, Any]:
+        """用微信回调带来的 tokenCode / OAuth code 换 access_token.
+
+        官网真实请求是 **GET**（旧代码用 POST 是错的，Playwright 抓包确认）：
+        /openapi/uv1/oauth/token?seq=&client_id=&code=<tokenCode>
+          &grant_type=authorization_code&scope=read+write&redirect_uri=<官网回调>
+        成功后返回体带 access_token / refresh_token；成功时前端把它存进
+        localStorage['token']。code 是一次性的，失效时官网直接返回空响应。
+        """
+        url = (
+            f"{GAS_API_BASE}/openapi/uv1/oauth/token?seq={quote(_seq(), safe='')}"
+            f"&client_id={quote(GAS_CLIENT_ID, safe='')}"
+            f"&code={quote(code, safe='')}"
+            "&grant_type=authorization_code&scope=read+write"
+            f"&redirect_uri={quote(GAS_OAUTH_REDIRECT, safe=':')}"
+        )
+        _LOGGER.debug("gas exchange_code (len=%d)", len(code))
+        async with self._get(url, headers={"Referer": GAS_WEB_REFERER}) as resp:
+            text = await resp.text()
+        _LOGGER.debug("gas exchange_code: %s", text[:300])
+        if not text.strip():
+            raise GasError(
+                "tokenCode 无效或已被使用（官网返回空响应）。请在微信里重新打开"
+                "网上营业厅，并立刻点右上角「···」→「复制链接」后粘贴进来。"
+            )
+        try:
+            data = json.loads(text)
+        except ValueError as err:
+            raise GasError(f"换取 token 返回异常: {text[:120]}") from err
+        inner = data.get("datas") if isinstance(data.get("datas"), dict) else {}
+        token = (
+            inner.get("access_token") or data.get("access_token")
+            or inner.get("token") or data.get("token") or ""
+        )
+        refresh = (
+            inner.get("refresh_token") or data.get("refresh_token") or ""
+        )
+        if not token:
+            raise GasError(
+                f"换取 token 失败: {json.dumps(data, ensure_ascii=False)[:200]}"
+            )
+        self.token = str(token)
+        self.refresh_token = str(refresh) or None
+        return {"token": str(token), "refresh": str(refresh), "raw": data}
+
     async def login(self, phone: str, sms: str) -> dict[str, Any]:
         """完整登录：校验短信→SSO 登录→换 token."""
         if not await self._validate_sms(phone, sms):
@@ -323,26 +416,13 @@ class GasClient:
                 raise GasError(f"OAuth 授权失败: HTTP {resp.status} {loc[:80]}")
         m = re.search(r"[?&]code=([^&]+)", loc)
         code = m.group(1)
-        # 换 token；redirect_uri 必须与 authorize 一致
-        async with self._post(
-            f"{GAS_API_BASE}/openapi/uv1/oauth/token",
-            json={
-                "code": code,
-                "grant_type": "authorization_code",
-                "scope": "read write",
-                "redirect_uri": GAS_OAUTH_REDIRECT,
-            },
-        ) as resp:
-            data = await resp.json(content_type=None)
-        token = (
-            data.get("datas", {}).get("access_token")
-            or data.get("access_token")
-            or data.get("datas", {}).get("token")
-        )
-        if not token:
-            raise GasError(f"token 换取失败: {json.dumps(data, ensure_ascii=False)[:200]}")
-        self.token = token
-        return {"token": token, "raw": data}
+        # 换 token：官网是 GET + query（见 exchange_code），不能用 POST
+        result = await self.exchange_code(code)
+        return {
+            "token": result["token"],
+            "refresh": result["refresh"],
+            "raw": result["raw"],
+        }
 
     async def _api(self, path: str, token: str | None = None, **params) -> Any:
         token = token or self.token

@@ -13,6 +13,7 @@ from .api import GasClient, WaterClient
 
 _LOGGER = logging.getLogger(__name__)
 from .const import (
+    CONF_GAS_REFRESH,
     CONF_GAS_TOKEN,
     CONF_GS,
     CONF_PHONE,
@@ -36,6 +37,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if service == SERVICE_GAS:
         gas = GasClient(session)
         gas.token = entry.data[CONF_GAS_TOKEN]
+        gas.refresh_token = entry.data.get(CONF_GAS_REFRESH)
 
         async def async_update_gas() -> dict:
             try:

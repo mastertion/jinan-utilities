@@ -42,6 +42,7 @@ CONF_USER_CODE = "user_code"       # 燃气户号
 CONF_ORG_CODE = "org_code"         # 燃气所属组织 stdCode（决定短信通道）
 CONF_GS = "gs"                     # 水务给水号
 CONF_GAS_TOKEN = "gas_token"
+CONF_GAS_REFRESH = "gas_refresh"
 CONF_WATER_TOKEN = "water_token"
 CONF_WATER_REFRESH = "water_refresh"
 CONF_USER_NAME = "user_name"

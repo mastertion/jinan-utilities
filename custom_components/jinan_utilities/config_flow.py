@@ -13,9 +13,10 @@ from homeassistant.core import callback
 from homeassistant.data_entry_flow import FlowResult
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .api import GasClient, GasError, WaterClient, WaterError
+from .api import GasClient, GasError, WaterClient, WaterError, parse_gas_credential
 from .const import (
     CONF_ADDRESS,
+    CONF_GAS_REFRESH,
     CONF_GAS_TOKEN,
     CONF_GS,
     CONF_LOGIN_METHOD,
@@ -42,7 +43,7 @@ SERVICE_SCHEMA = vol.Schema({
         METHOD_PHONE: "仅手机号直连（济南水务，推荐）",
         METHOD_SMS: "手机号 + 短信验证码",
         METHOD_PASSWORD: "密码登录（水务网厅图形码故障，暂不可用）",
-        METHOD_TOKEN: "手动填入 access_token（兜底）",
+        METHOD_TOKEN: "粘贴微信链接 / 手动 token（燃气不用短信，推荐）",
     }),
 })
 PHONE_SCHEMA = vol.Schema({vol.Required(CONF_PHONE): str})
@@ -159,28 +160,45 @@ class JinanUtilitiesConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     # ---------------- 手动填入 token（收不到短信时的兜底） ----------------
     async def async_step_manual(self, user_input=None) -> FlowResult:
-        """用户已在浏览器登录官网，把登录态 token 直接交给集成."""
+        """粘贴微信链接 / tokenCode / access_token，完全绕开短信."""
         errors = {}
         last_err = ""
         if user_input is not None:
-            token = (user_input.get("access_token") or "").strip()
-            refresh = (user_input.get("refresh_token") or "").strip()
-            if not token:
+            raw = (user_input.get("access_token") or "").strip()
+            refresh_in = (user_input.get("refresh_token") or "").strip()
+            if not raw:
                 errors["base"] = "need_token"
-                last_err = "请填入 access_token"
+                last_err = "请粘贴微信链接 / tokenCode / access_token"
             else:
                 session = async_get_clientsession(self.hass)
                 try:
                     if self.service == SERVICE_GAS:
                         self.gas = GasClient(session)
+                        cred = parse_gas_credential(raw)
+                        token = cred["token"]
+                        refresh = cred["refresh"] or refresh_in
+                        # 微信链接里带 tokenCode / code 时，直接调官网 GET 换 token
+                        if not token and cred["code"]:
+                            exchanged = await self.gas.exchange_code(cred["code"])
+                            token = exchanged["token"]
+                            refresh = refresh or exchanged["refresh"]
+                        if not token:
+                            raise GasError(
+                                "没能从粘贴内容里找到 tokenCode / access_token。"
+                                "请在微信里打开公众号网上营业厅，点右上角「···」→ "
+                                "「复制链接」，把完整链接粘贴进来（链接需带 "
+                                "tokenCode 或 token 参数）；若页面已把参数清掉，"
+                                "可改用浏览器 F12 复制 access_token。"
+                            )
                         self.gas.token = token
+                        self.gas.refresh_token = refresh or None
                         self.subs = await self.gas.query_subs()
                         if not self.subs:
                             raise GasError("token 无效或已过期，未查到户号")
                         return await self.async_step_pick_user()
                     self.water = WaterClient(session)
-                    self.water.access_token = token
-                    self.water.refresh_token = refresh
+                    self.water.access_token = parse_gas_credential(raw)["token"] or raw
+                    self.water.refresh_token = refresh_in
                     self.gs_list = await self.water.get_bind_list(self.phone)
                     if not self.gs_list:
                         return self.async_abort(reason="water_no_bind")
@@ -357,6 +375,7 @@ class JinanUtilitiesConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     CONF_PHONE: self.phone,
                     CONF_USER_CODE: user_input[CONF_USER_CODE],
                     CONF_GAS_TOKEN: self.gas.token,
+                    CONF_GAS_REFRESH: self.gas.refresh_token,
                     CONF_USER_NAME: (sub or {}).get("userName") or "",
                     CONF_ADDRESS: (sub or {}).get("address") or "",
                 },
