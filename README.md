@@ -23,6 +23,7 @@
 ### 版本与更新
 
 - 当前发布版本 **`v0.2.1`**，GitHub Release 已发布；HA 市场 / HACS 靠 Release 识别新版本，`main` 分支上的代码与该 tag 一致。
+- 仓库内置 `.github/workflows/release.yml`：以后只要推送 `v*` 形式的 tag，GitHub Actions 就会用内置 `GITHUB_TOKEN` 自动创建 Release（无需手动点 Publish，也不依赖本地 PAT 权限）。
 - 若曾用「手动安装」直接覆盖文件部署，市场里的「已安装版本」可能仍停在此前下载时的旧版本号，而实际运行代码已是最新。在市场里点一次**更新**即可让版本记录对齐（下载内容与当前一致），之后重启 HA。
 - Release 发布后 tag 不再移动，后续功能改动会走新版本号。
 
