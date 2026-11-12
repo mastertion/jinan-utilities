@@ -1,0 +1,28 @@
+name: Publish release on tag
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create GitHub Release for the pushed tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          # 使用 Actions 内置的 GITHUB_TOKEN，避免本地 PAT 缺少 repo scope 时无法创建 Release。
+          # --verify-tag 保证只发布已经推送到远端的 tag；重复触发时保持幂等。
+          gh release create "$TAG" \
+            --repo "$REPO" \
+            --title "$TAG" \
+            --generate-notes \
+            --verify-tag \
+            || gh release view "$TAG" --repo "$REPO" >/dev/null
