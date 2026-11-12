@@ -167,3 +167,4 @@ sign = md5(
 - `0.1.2+`（main）：完整实测「只用户号能否查余额」并给出否定结论（网关鉴权层拦截、功能清单无免登录入口、微信域同一套网关）；补充公众号二维码与 PC 微信复制链接的操作指引。功能不变。
 - `0.2.0+`（main）：配置流拆成两步，**登录方式按所选服务类型动态显示**（燃气只列微信扫码授权 / PC 网厅手动 token / 短信；水费只列手机号直连 / 短信 / 密码 / 手动 token），四语文案同步。功能不变。
 - `0.2.0`：**燃气完整跑通**。新增微信公众号 H5 授权路径：配置流「微信扫码授权」支持粘贴回调链接 / code / localStorage JSON，自动 `accessToekn` 换 token；新增 `GasH5Client`（Bearer + MD5 签名 + 自动续期）；验证 `usersubs/queryBindList` → `charge/gasFeeBaseinfo` 取到 `availableBalance` / `feePayable`；针对 `refresh_token` 一次性轮换，把续期后的新 token 持久化回配置条目；新增「待交燃气费」传感器，燃气属性改白名单脱敏；四语文案与界面同步更新。水费功能不变。
+- `0.2.0+`（main）：修复配置页出现 **`Translation error: MALFORMED_ARGUMENT`**。原因是 HA 前端用 ICU MessageFormat 编译每条文案，而 `wechat` / `manual` 说明里的 JSON 示例 `{"access_token":"...","refresh_token":"..."}` 带裸花括号，被当成非法参数占位符；改为纯文字描述，并清理会被 ICU 当作转义符的 ASCII 单引号、`method` 步骤未提供的 `{error}` 占位符。新增 `tools/check_translations.py` 做防回归校验；四语文案全部通过 `intl-messageformat` 真实解析。功能不变。
