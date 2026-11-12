@@ -3,10 +3,17 @@
     "step": {
       "user": {
         "title": "济南公用事业",
-        "description": "选择要接入的服务和登录方式。**水费（济南水务）推荐「仅手机号直连」**：实测网厅只校验注册手机号，填完就能看到余额。**「手机号 + 短信验证码」也已调通**，想走正规登录流程可以选它（无需图形码）。密码登录因网厅图形验证码服务故障暂不可用。燃气若收不到短信，请直接选「粘贴微信链接 / 手动 token」，完全不用短信。",
+        "description": "选择要接入的服务和登录方式。**燃气（山东港华）请选「微信扫码授权」**：不用短信验证码，微信授权一次即可自动查余额并每 30 分钟刷新。**水费（济南水务）请选「仅手机号直连」**：实测网厅只校验注册手机号，填完就能看到余额；「手机号 + 短信验证码」也已调通。密码登录因网厅图形验证码服务故障暂不可用。",
         "data": {
           "service": "服务类型",
           "login_method": "登录方式"
+        }
+      },
+      "wechat": {
+        "title": "微信扫码授权（燃气，不用短信）",
+        "description": "**这是燃气取数的推荐方式，全程不需要短信验证码。**\n\n1. 在手机微信里打开 [港华燃气微信授权页]({authorize_url})（或扫描 README 里的授权二维码）；\n2. 按提示完成微信授权，浏览器最后会停在打不开的 `__ha_capture.html?code=xxxxx` 页面；\n3. **立刻复制地址栏里的整条链接**粘贴到下面（code 只能用一次、几分钟内有效）；\n4. 集成自动用 code 换 `access_token`，列出绑定的燃气户号，之后每 30 分钟自动刷新余额。\n\n也可以直接粘贴 `{\"access_token\":\"...\",\"refresh_token\":\"...\"}`。token 每 2 小时自动续期，续期结果会写回 HA 配置，无需重复扫码。\n\n{error}",
+        "data": {
+          "wechat_link": "微信授权后的完整链接 / code / access_token"
         }
       },
       "phone": {
@@ -40,8 +47,8 @@
         }
       },
       "manual": {
-        "title": "粘贴微信链接 / 手动 token（燃气不用短信）",
-        "description": "**只填燃气户号查不到余额**：实测网关在鉴权层就要求 `access_token`，户号只在拿到登录态后用于选择具体哪一户。请先取得登录态。\n\n**燃气（推荐，完全不用短信）**：手机微信打开「山东港华燃气集团有限公司」公众号 → 网上营业厅 → 右上角「···」→「复制链接」→ 把**整条链接**粘贴到下面。链接里若带 `tokenCode` 或 `code`，集成会自动向官网换取 `access_token`；也可直接粘贴 `{\"access_token\":\"...\",\"refresh_token\":\"...\"}`（浏览器 localStorage 里的 token）或裸 `access_token`。\n\n**燃气（电脑浏览器）**：登录 https://wt.shandongtowngas.com.cn/ → F12 → Network → 任意 `/openapi/uv1/...` 请求 → Query String 里复制 `token`。\n\n**水费**：优先用「仅手机号直连」，通常不需要这一步；若需手动，登录 http://wt.jnwater.com.cn/shoufeizjj3/WT/index.html → F12 → 任意 `api/WxProgramApi/` 请求 → 请求标头里的 `accesstoken`。\n\n{error}",
+        "title": "粘贴 PC 网厅链接 / 手动 token（旧版燃气）",
+        "description": "**只填燃气户号查不到余额**：实测网关在鉴权层就要求 `access_token`，户号只在拿到登录态后用于选择具体哪一户。请先取得登录态。\n\n**燃气 PC 网厅（旧版，不推荐）**：手机微信打开「山东港华燃气集团有限公司」公众号 → 网上营业厅 → 右上角「···」→「复制链接」→ 把**整条链接**粘贴到下面。链接里若带 `tokenCode` 或 `code`，集成会自动向官网换取 `access_token`；也可直接粘贴 `{\"access_token\":\"...\",\"refresh_token\":\"...\"}`（浏览器 localStorage 里的 token）或裸 `access_token`。\n\n**燃气（电脑浏览器）**：登录 https://wt.shandongtowngas.com.cn/ → F12 → Network → 任意 `/openapi/uv1/...` 请求 → Query String 里复制 `token`。\n\n**水费**：优先用「仅手机号直连」，通常不需要这一步；若需手动，登录 http://wt.jnwater.com.cn/shoufeizjj3/WT/index.html → F12 → 任意 `api/WxProgramApi/` 请求 → 请求标头里的 `accesstoken`。\n\n{error}",
         "data": {
           "access_token": "微信链接 / tokenCode / access_token",
           "refresh_token": "refresh_token / refreshtoken（可选）"

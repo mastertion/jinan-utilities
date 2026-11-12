@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import random
@@ -15,6 +16,13 @@ import aiohttp
 from .const import (
     GAS_API_BASE,
     GAS_CLIENT_ID,
+    GAS_H5_API,
+    GAS_H5_CLIENT_ID,
+    GAS_H5_OAUTH,
+    GAS_H5_ORG_ID,
+    GAS_H5_REFERER,
+    GAS_H5_SIGN_KEY,
+    GAS_H5_UA,
     GAS_LOGIN_BASE,
     GAS_OAUTH_REDIRECT,
     GAS_ORGS_FALLBACK,
@@ -455,6 +463,215 @@ class GasClient:
         url = f"{GAS_API_BASE}/business/pay/price/{org_code}/{user_code}"
         # 页面数据接口未知时，先返回占位
         return await self._api("user/queryBindSubsLimitServer", token, isPayOrReport="Y")
+
+
+class GasH5Client:
+    """山东港华燃气「微信公众号 H5 营业厅」客户端（无需短信）.
+
+    实测（2026-11-13，用真实微信授权码逐条跑通）：
+    - 微信回调 code → POST /vcc-oauth/oauth/authorize2/accessToekn?authCode=<code>
+      返回 access_token / refresh_token / expires_in(7200)。
+    - 续期 → POST /vcc-oauth/oauth/authorize2/refreshToken?refreshToken=<rt>，
+      返回**全新** token 对。refresh_token 是一次性轮换的：刷新成功后旧的
+      access_token 与 refresh_token 立刻失效（20001 / 90143）。因此每次刷新
+      后必须经 on_rotated 回调把新 token 持久化进 config entry，否则重启即失效。
+    - 业务接口 GET /nv1/vcc-cbs/... 需要 Bearer token + clientid + timestamp + sign；
+      sign = MD5(参数按键排序拼接 key+value + "hbasesoft.com-prod").upper()
+    - usersubs/queryBindList → subsId / subsCode / orgId / displayAddr
+    - charge/gasFeeBaseinfo?orgId=&subsId= → availableBalance / feePayable
+    """
+
+    def __init__(
+        self,
+        session: aiohttp.ClientSession,
+        token: str = "",
+        refresh: str = "",
+    ) -> None:
+        self.session = session
+        self.token = token or ""
+        self.refresh_token = refresh or ""
+        self.org_id = ""
+        self.subs_id = ""
+        self.subs_code = ""
+        # async callback(token, refresh)：把轮换后的新 token 写回 config entry
+        self.on_rotated = None
+
+    # ---------------- 基础设施 ----------------
+    @staticmethod
+    def _sign(params: dict) -> str:
+        body = "".join(
+            k + str(v)
+            for k, v in sorted(params.items())
+            if k != "sign" and v is not None and v != ""
+        )
+        return hashlib.md5(
+            (body + GAS_H5_SIGN_KEY).encode("utf-8")
+        ).hexdigest().upper()
+
+    @staticmethod
+    def _oauth_headers() -> dict:
+        return {
+            "User-Agent": GAS_H5_UA,
+            "Referer": GAS_H5_REFERER,
+            "Content-Type": "application/json",
+            "clientid": GAS_H5_CLIENT_ID,
+        }
+
+    def _headers(self) -> dict:
+        return {
+            **self._oauth_headers(),
+            "Authorization": "Bearer " + self.token,
+        }
+
+    def _post(self, url: str, **kw):
+        headers = {**self._oauth_headers(), **kw.pop("headers", {})}
+        return self.session.post(url, headers=headers, **kw)
+
+    @staticmethod
+    def _parse(text: str) -> dict:
+        try:
+            data = json.loads(text)
+        except ValueError as err:
+            raise GasError(f"H5 接口返回异常: {text[:120]}") from err
+        if not isinstance(data, dict):
+            raise GasError(f"H5 接口返回异常: {text[:120]}")
+        return data
+
+    @staticmethod
+    def _check(data: dict) -> dict:
+        code = str(data.get("resultCode") or "0")
+        if code not in ("0", "200", "00000"):
+            msg = str(data.get("resultMsg") or code)
+            if code == "20001":
+                raise GasError("access token 已过期")
+            if code == "90143":
+                raise GasError(
+                    "refreshToken 已失效，请重新用微信扫码授权并粘贴新链接"
+                )
+            if code == "40058":
+                raise GasError("H5 网关要求 access_token，当前登录态为空")
+            raise GasError(f"H5 接口返回错误 {code}: {msg}")
+        return data
+
+    async def _notify(self) -> None:
+        """token 轮换后立刻持久化（回调可以是同步或异步函数）."""
+        if not self.on_rotated:
+            return
+        try:
+            result = self.on_rotated(self.token, self.refresh_token)
+            if asyncio.iscoroutine(result):
+                await result
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("gas H5 token 持久化失败: %s", err)
+
+    # ---------------- 授权码 / 续期 ----------------
+    async def exchange_code(self, code: str) -> dict[str, str]:
+        """微信 OAuth 回调 code → access_token。code 一次性、几分钟内有效."""
+        url = GAS_H5_OAUTH + "accessToekn?authCode=" + quote(code, safe="")
+        async with self._post(url, json={}) as resp:
+            data = self._parse(await resp.text())
+        token = str(data.get("access_token") or "")
+        if not token:
+            msg = str(data.get("resultMsg") or "")
+            if str(data.get("resultCode")) == "90142" or "授权码" in msg:
+                raise GasError(
+                    "微信授权码已失效或已被使用（每个 code 只能用一次）。"
+                    "请重新扫码授权，并立刻把浏览器地址栏里的整条链接粘贴进来。"
+                )
+            raise GasError(f"微信授权码换取 token 失败: {msg or str(data)[:120]}")
+        self.token = token
+        self.refresh_token = str(data.get("refresh_token") or "")
+        await self._notify()
+        return {"token": self.token, "refresh": self.refresh_token}
+
+    async def refresh(self) -> str:
+        """用一次性 refresh_token 换新 token 对."""
+        if not self.refresh_token:
+            raise GasError(
+                "没有 refresh_token，无法自动续期；请重新在微信里扫码授权并粘贴新链接"
+            )
+        url = (
+            GAS_H5_OAUTH + "refreshToken?refreshToken="
+            + quote(self.refresh_token, safe="")
+        )
+        async with self._post(url, json={}) as resp:
+            data = self._parse(await resp.text())
+        token = str(data.get("access_token") or "")
+        if not token:
+            msg = str(data.get("resultMsg") or str(data)[:120])
+            raise GasError(
+                f"token 自动续期失败（{msg}）；请重新用微信扫码授权并粘贴新链接"
+            )
+        self.token = token
+        self.refresh_token = str(data.get("refresh_token") or "")
+        _LOGGER.info("gas H5 token 已自动续期")
+        await self._notify()
+        return token
+
+    # ---------------- 业务查询 ----------------
+    async def _get_json(self, path: str, params: dict) -> dict:
+        p = dict(params)
+        p["timestamp"] = int(time.time() * 1000)
+        p["sign"] = self._sign(p)
+        async with self.session.get(
+            GAS_H5_API + path, params=p, headers=self._headers()
+        ) as resp:
+            return self._parse(await resp.text())
+
+    async def _authed(self, path: str, params: dict) -> dict:
+        """token 过期时自动续期一次再重试."""
+        data = await self._get_json(path, params)
+        if str(data.get("resultCode")) == "20001":
+            await self.refresh()
+            data = await self._get_json(path, params)
+        return self._check(data)
+
+    async def query_bind_list(self) -> list[dict]:
+        data = await self._authed(
+            "usersubs/queryBindList",
+            {"orgId": self.org_id or GAS_H5_ORG_ID,
+             "clientid": GAS_H5_CLIENT_ID},
+        )
+        subs = data.get("datas") or data.get("data") or []
+        return subs if isinstance(subs, list) else []
+
+    async def get_fee(self, subs_id: str, org_id: str | None = None) -> dict:
+        return await self._authed(
+            "charge/gasFeeBaseinfo",
+            {
+                "orgId": org_id or self.org_id or GAS_H5_ORG_ID,
+                "subsId": subs_id,
+                "clientid": GAS_H5_CLIENT_ID,
+            },
+        )
+
+    async def async_get_data(self, subs_code: str | None = None) -> dict:
+        """一次更新：取户号列表 → 选定户 → 查余额，返回给 coordinator."""
+        subs = await self.query_bind_list()
+        if not subs:
+            raise GasError("该微信账号名下未查到燃气户号")
+        target = subs_code or self.subs_code
+        sub = None
+        if target:
+            sub = next(
+                (s for s in subs if str(s.get("subsCode") or "") == str(target)),
+                None,
+            )
+        if sub is None:
+            sub = next(
+                (s for s in subs if str(s.get("defaultFlag") or "") == "Y"),
+                subs[0],
+            )
+        self.org_id = str(sub.get("orgId") or self.org_id or GAS_H5_ORG_ID)
+        self.subs_id = str(sub.get("subsId") or "")
+        self.subs_code = str(sub.get("subsCode") or "")
+        fee = await self.get_fee(self.subs_id, self.org_id)
+        merged = dict(sub)
+        # 让现有传感器读取的字段统一起来
+        merged["balance"] = fee.get("availableBalance")
+        merged["feePayable"] = fee.get("feePayable")
+        merged["lastMeterReadingDate"] = fee.get("lastMeterReadingDate")
+        return {"sub": merged, "fee": fee, "subs": subs}
 
 
 class WaterClient:

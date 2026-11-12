@@ -13,10 +13,15 @@ from homeassistant.core import callback
 from homeassistant.data_entry_flow import FlowResult
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .api import GasClient, GasError, WaterClient, WaterError, parse_gas_credential
+from .api import (
+    GasClient, GasError, GasH5Client, WaterClient, WaterError,
+    parse_gas_credential,
+)
 from .const import (
     CONF_ADDRESS,
+    CONF_GAS_ORG_ID,
     CONF_GAS_REFRESH,
+    CONF_GAS_SUBS_ID,
     CONF_GAS_TOKEN,
     CONF_GS,
     CONF_LOGIN_METHOD,
@@ -27,11 +32,14 @@ from .const import (
     CONF_USER_NAME,
     CONF_WATER_REFRESH,
     CONF_WATER_TOKEN,
+    CONF_WECHAT_LINK,
     DOMAIN,
+    GAS_H5_AUTHORIZE_URL,
     METHOD_PASSWORD,
     METHOD_PHONE,
     METHOD_SMS,
     METHOD_TOKEN,
+    METHOD_WECHAT,
     SERVICE_GAS,
     SERVICE_WATER,
 )
@@ -40,10 +48,11 @@ SERVICE_SCHEMA = vol.Schema({
     vol.Required(CONF_SERVICE, default=SERVICE_GAS): vol.In(
         {SERVICE_GAS: "燃气（山东港华）", SERVICE_WATER: "水费（济南水务）"}),
     vol.Required(CONF_LOGIN_METHOD, default=METHOD_PHONE): vol.In({
+        METHOD_WECHAT: "微信扫码授权（燃气，推荐·不用短信·全自动续期）",
         METHOD_PHONE: "仅手机号直连（济南水务，推荐）",
         METHOD_SMS: "手机号 + 短信验证码",
         METHOD_PASSWORD: "密码登录（水务网厅图形码故障，暂不可用）",
-        METHOD_TOKEN: "粘贴微信链接 / 手动 token（燃气不用短信，推荐）",
+        METHOD_TOKEN: "粘贴 PC 网厅链接 / 手动 token（旧版燃气）",
     }),
 })
 PHONE_SCHEMA = vol.Schema({vol.Required(CONF_PHONE): str})
@@ -60,6 +69,7 @@ MANUAL_SCHEMA = vol.Schema({
     vol.Required("access_token"): str,
     vol.Optional("refresh_token", default=""): str,
 })
+WECHAT_SCHEMA = vol.Schema({vol.Required(CONF_WECHAT_LINK): str})
 
 
 class JinanUtilitiesConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -72,6 +82,7 @@ class JinanUtilitiesConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self.login_method: str = METHOD_SMS
         self.phone: str | None = None
         self.gas: GasClient | None = None
+        self.h5: GasH5Client | None = None
         self.water: WaterClient | None = None
         self.subs: list[dict] = []
         self.gs_list: list[dict] = []
@@ -82,6 +93,11 @@ class JinanUtilitiesConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             self.service = user_input[CONF_SERVICE]
             self.login_method = user_input.get(CONF_LOGIN_METHOD, METHOD_SMS)
+            if self.login_method == METHOD_WECHAT:
+                # 微信 H5 授权只对燃气有效；选了水费就回退到手机号直连
+                if self.service == SERVICE_GAS:
+                    return await self.async_step_wechat()
+                self.login_method = METHOD_PHONE
             # 燃气登录页只有短信方式，水务专用方式自动回退
             if self.service == SERVICE_GAS and self.login_method in (METHOD_PASSWORD, METHOD_PHONE):
                 self.login_method = METHOD_SMS
@@ -156,6 +172,59 @@ class JinanUtilitiesConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             }),
             errors=errors,
             description_placeholders={"error": last_err},
+        )
+
+    # ---------------- 燃气：微信公众号 H5 授权（推荐） ----------------
+    async def async_step_wechat(self, user_input=None) -> FlowResult:
+        """粘贴微信回调链接（带 code=...），集成自动换 token 并续期.
+
+        这条链完全绕开 PC 网厅的短信登录：微信 OAuth 回调 code →
+        accessToekn → access_token / refresh_token → 业务接口取余额。
+        """
+        errors = {}
+        last_err = ""
+        if user_input is not None:
+            raw = (user_input.get(CONF_WECHAT_LINK) or "").strip()
+            if not raw:
+                errors["base"] = "need_token"
+                last_err = (
+                    "请粘贴微信授权后浏览器地址栏里的整条链接（需带 code=...）"
+                )
+            else:
+                session = async_get_clientsession(self.hass)
+                try:
+                    cred = parse_gas_credential(raw)
+                    h5 = GasH5Client(session)
+                    if cred["code"]:
+                        await h5.exchange_code(cred["code"])
+                    elif cred["token"]:
+                        h5.token = cred["token"]
+                        h5.refresh_token = cred["refresh"]
+                    else:
+                        raise GasError(
+                            "粘贴内容里没有找到 code 或 access_token。"
+                            "请把微信授权后地址栏里的整条链接原样复制进来。"
+                        )
+                    if cred["refresh"] and not h5.refresh_token:
+                        h5.refresh_token = cred["refresh"]
+                    self.subs = await h5.query_bind_list()
+                    if not self.subs:
+                        raise GasError("token 有效，但未查到该微信绑定的燃气户号")
+                    self.h5 = h5
+                    self.phone = ""
+                    return await self.async_step_pick_user()
+                except (GasError, WaterError) as err:
+                    errors["base"] = "manual_failed"
+                    last_err = str(err)
+                except aiohttp.ClientError as err:
+                    errors["base"] = "network"
+                    last_err = str(err)
+        return self.async_show_form(
+            step_id="wechat", data_schema=WECHAT_SCHEMA, errors=errors,
+            description_placeholders={
+                "error": last_err,
+                "authorize_url": GAS_H5_AUTHORIZE_URL,
+            },
         )
 
     # ---------------- 手动填入 token（收不到短信时的兜底） ----------------
@@ -356,30 +425,57 @@ class JinanUtilitiesConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             "「当前手机号存在未失效的验证码」时，直接输入最新那条即可。"
         )
     # ---------------- 燃气选户号 ----------------
+    @staticmethod
+    def _sub_code(sub: dict) -> str:
+        """PC 网厅与 H5 网关的户号字段名不同."""
+        return str(
+            sub.get("subsCode") or sub.get("userCode")
+            or sub.get("UserCode") or sub.get("user_code") or ""
+        )
+
+    @staticmethod
+    def _sub_label(sub: dict, code: str) -> str:
+        name = (sub.get("name") or sub.get("userName")
+                or sub.get("nickName") or code)
+        addr = sub.get("displayAddr") or sub.get("address") or ""
+        return f"{name} / {addr} ({code})" if addr else f"{name} ({code})"
+
     async def async_step_pick_user(self, user_input=None) -> FlowResult:
         errors = {}
         options = {}
         for sub in self.subs:
-            code = str(sub.get("userCode") or sub.get("UserCode") or sub.get("user_code"))
-            name = sub.get("userName") or sub.get("address") or code
-            options[code] = f"{name} ({code})"
+            code = self._sub_code(sub)
+            if code:
+                options[code] = self._sub_label(sub, code)
         if user_input is not None:
-            sub = next((s for s in self.subs if str(
-                s.get("userCode") or s.get("UserCode") or s.get("user_code")) == user_input[CONF_USER_CODE]), None)
-            await self.async_set_unique_id(f"gas_{user_input[CONF_USER_CODE]}")
+            code = user_input[CONF_USER_CODE]
+            sub = next(
+                (s for s in self.subs if self._sub_code(s) == code), None
+            ) or {}
+            await self.async_set_unique_id(f"gas_{code}")
             self._abort_if_unique_id_configured()
-            return self.async_create_entry(
-                title=f"济南燃气 {user_input[CONF_USER_CODE]}",
-                data={
-                    CONF_SERVICE: SERVICE_GAS,
-                    CONF_PHONE: self.phone,
-                    CONF_USER_CODE: user_input[CONF_USER_CODE],
+            data = {
+                CONF_SERVICE: SERVICE_GAS,
+                CONF_PHONE: self.phone or "",
+                CONF_USER_CODE: code,
+                CONF_USER_NAME: (sub.get("name") or sub.get("userName") or ""),
+                CONF_ADDRESS: (sub.get("displayAddr") or sub.get("address") or ""),
+            }
+            if self.h5:
+                # 微信 H5：保存轮换式 token 与业务接口所需内部 ID
+                data.update({
+                    CONF_LOGIN_METHOD: METHOD_WECHAT,
+                    CONF_GAS_TOKEN: self.h5.token,
+                    CONF_GAS_REFRESH: self.h5.refresh_token,
+                    CONF_GAS_SUBS_ID: str(sub.get("subsId") or ""),
+                    CONF_GAS_ORG_ID: str(sub.get("orgId") or ""),
+                })
+            else:
+                data.update({
                     CONF_GAS_TOKEN: self.gas.token,
                     CONF_GAS_REFRESH: self.gas.refresh_token,
-                    CONF_USER_NAME: (sub or {}).get("userName") or "",
-                    CONF_ADDRESS: (sub or {}).get("address") or "",
-                },
-            )
+                })
+            return self.async_create_entry(title=f"济南燃气 {code}", data=data)
         if not options:
             errors["base"] = "no_subs"
             return self.async_show_form(step_id="pick_user", errors=errors)

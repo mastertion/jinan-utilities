@@ -3,10 +3,17 @@
     "step": {
       "user": {
         "title": "Jinan Utilities",
-        "description": "Choose the service and login method. For water (Jinan Water), **Phone only** is recommended: only the registered mobile number is needed. **Mobile + SMS code** also works (no image captcha required). Password login is currently unavailable because the portal image-captcha service is broken. If gas SMS never arrives, choose 'Paste WeChat link / manual token' - no SMS needed.",
+        "description": "Choose the service and login method. For gas (Shandong Towngas), **WeChat authorization is recommended**: no SMS needed, authorize once in WeChat and the balance refreshes every 30 minutes. For water (Jinan Water), **Phone only** is recommended: only the registered mobile number is needed. Mobile + SMS code also works. Password login is unavailable because the portal image-captcha service is broken.",
         "data": {
           "service": "Service",
           "login_method": "Login method"
+        }
+      },
+      "wechat": {
+        "title": "WeChat authorization (gas, no SMS)",
+        "description": "**Recommended for gas; no SMS code needed.**\n\n1. Open the [Town-gas WeChat authorization page]({authorize_url}) in WeChat (or scan the QR code in the README);\n2. Finish the WeChat authorization; the browser ends on a broken `__ha_capture.html?code=xxxxx` page;\n3. **Copy the FULL URL from the address bar immediately** and paste it below (each code is one-time and short-lived);\n4. The integration exchanges the code for an access_token, lists your gas accounts and refreshes the balance every 30 minutes.\n\nYou can also paste `{\"access_token\":\"...\",\"refresh_token\":\"...\"}`. The token auto-renews every 2 hours and the renewed token is saved back into the HA config entry.\n\n{error}",
+        "data": {
+          "wechat_link": "Full WeChat callback URL / code / access_token"
         }
       },
       "phone": {
@@ -40,8 +47,8 @@
         }
       },
       "manual": {
-        "title": "Paste WeChat link / manual token (no SMS)",
-        "description": "A bare gas account number cannot return any data (the gateway requires an access_token before it even reads the account number).\n\nGas (recommended, no SMS): open the 'Shandong Towngas' WeChat official account > Online Hall > tap the top-right menu > Copy Link, then paste the FULL link below. If it contains tokenCode or code, the integration exchanges it for an access_token automatically. You can also paste {\"access_token\":\"...\",\"refresh_token\":\"...\"} from localStorage, or a bare access_token.\n\nGas (desktop): sign in at https://wt.shandongtowngas.com.cn/ , DevTools Network, copy token from any /openapi/uv1/ request.\n\nWater: prefer Phone only, this step is normally unnecessary.\n\n{error}",
+        "title": "Paste PC portal link / manual token (legacy gas)",
+        "description": "A bare gas account number cannot return any data (the gateway requires an access_token before it even reads the account number).\n\nGas (legacy, not recommended): open the 'Shandong Towngas' WeChat official account > Online Hall > tap the top-right menu > Copy Link, then paste the FULL link below. If it contains tokenCode or code, the integration exchanges it for an access_token automatically. You can also paste {\"access_token\":\"...\",\"refresh_token\":\"...\"} from localStorage, or a bare access_token.\n\nGas (desktop): sign in at https://wt.shandongtowngas.com.cn/ , DevTools Network, copy token from any /openapi/uv1/ request.\n\nWater: prefer Phone only, this step is normally unnecessary.\n\n{error}",
         "data": {
           "access_token": "WeChat link / tokenCode / access_token",
           "refresh_token": "refresh_token (optional)"

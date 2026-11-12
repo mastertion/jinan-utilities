@@ -1,6 +1,8 @@
 # 济南公用事业 · Home Assistant 集成
 
-`jinan_utilities` 是一个 Home Assistant 自定义集成，用于在 HA 中显示**济南水务**水费账户余额 / 待交水费，以及**山东港华（济南港华）**燃气余额。数据来自两家网上营业厅的公开查询接口，每 30 分钟自动刷新。
+`jinan_utilities` 是一个 Home Assistant 自定义集成，用于在 HA 中显示**济南水务**水费账户余额 / 待交水费，以及**山东港华（济南港华）**燃气余额 / 待交燃气费。数据来自两家网上营业厅的公开查询接口，每 30 分钟自动刷新。
+
+> **2026-11-13 更新：燃气已完整跑通**。不再依赖收不到的短信验证码。改用**微信公众号 H5 授权**：微信扫码一次 → 复制回调链接 → 粘贴进 HA，集成自动换取 token、查询余额并每 30 分钟刷新；token 每 2 小时自动续期，续期结果写回配置条目，无需重复扫码。实测某绑定户返回余额 **30.50 元**、待交 **0 元**、上次抄表日 `2026-11-13`（户号已脱敏）。
 
 > 本项目为个人存档与自用集成，非官方产品，与济南水务、山东港华无关。接口为非公开的网页端接口，随时可能变更或失效。
 
@@ -28,12 +30,16 @@
 | 水费 | 手机号 + 短信验证码 | 已调通，作为备用；水务不需要图形码 |
 | 水费 | 手动填入 access_token | 兜底 |
 | 水费 | 密码登录 | 网厅图形验证码服务当前故障，暂不可用 |
-| 燃气（山东港华 / 济南港华） | **粘贴微信链接 / 手动 token** | 短信收不到时首选：微信里复制网上营业厅链接，集成自动换 `access_token`，完全不用短信 |
-| 燃气 | 短信验证码 | 仅当账户登记手机号能正常收短信时可用；带组织选择、诊断回显与限频保护 |
+| 燃气（山东港华 / 济南港华） | **微信扫码授权** | 已实测跑通：微信扫码 → 复制 `__ha_capture.html?code=...` 链接 → 粘贴进 HA。集成自动换 token、自动续期、查余额，完全不用短信 |
+| 燃气 | 粘贴 PC 网厅链接 / 手动 token | 旧版备用路径（`tokenCode` / localStorage JSON / 裸 `access_token`） |
+| 燃气 | 短信验证码 | 官网页面自己也收不到短信，实际不可用；保留代码与诊断回显供排查 |
+| 水费 | 短信验证码 / 密码 / token | 备用路径 |
 
-配置时会列出该手机号绑定的给水号，选中后创建条目。
+配置时会列出该微信 / 手机号绑定的户号，选中后创建条目。
 
 ### 燃气短信收不到时（已实测结论）
+
+> **现已绕开**：下面记录的是排查过程。燃气取数已改为微信公众号 H5 授权路径（见上文），不再需要短信，以下内容仅作为历史排查资料保留。
 
 **系统归属已核实**：`wt.shandongtowngas.com.cn` / `login.shandongtowngas.com.cn` 就是山东港华燃气集团（含济南港华）的官方网厅；`jinantowngas.com.cn` 旧域名目前已不解析。`queryOrgs` 返回的两个 orgCode **同属一家公司**：`10401_JNGH0105`（高新客户服务中心）与 `SDJH0105`（总公司，备注济南市），并非两家不同公司、也不是两条不同短信通道。
 
@@ -50,7 +56,7 @@
 2. 检查手机安全软件 / 运营商是否拦截了 106 下行短信。
 3. 官网**按手机号限流**，短时间重复「重新发送」会返回「发送次数过多」；集成内置 60 秒保护，被限流请等 10~30 分钟。
 4. 换另一个 orgCode 重试（两个组织实测都试过，成功率不高，但成本很低）。
-5. **拨打 96969**（济南能源 24 小时热线）核对 / 变更登记手机号 —— 这是让短信链路恢复全自动的唯一办法，代码侧已全部就绪。
+5. **拨打 96969**（济南能源 24 小时热线）核对 / 变更登记手机号 —— 这是让短信链路恢复的办法；但目前无需再走这条路，直接用「微信扫码授权」即可。
 
 ### 只给「燃气户号」能不能查余额？（已实测：不能）
 
@@ -67,7 +73,42 @@
 
 **所以「户号」在本集成里的角色只是：拿到有效 token 之后，从 `querySubs` 返回的户号列表里选中具体哪一户。** 单独一个户号换不出任何数据，也不等价于登录凭据。户号真正能用的地方是官方渠道（支付宝 / 微信「生活缴费 → 燃气费」输户号查余额、NB-IoT 表长按看余额、拨 96969 报户号核对登记手机号），这些是人工查询，HA 无法自动调用。
 
-### 推荐：粘贴微信链接，自动换 token（完全不用短信）
+### 推荐：微信扫码授权（燃气已跑通，2026-11-13）
+
+PC 网厅的短信链路既然在官网自己也收不到，本项目改走**微信公众号 H5 营业厅**的独立网关，用真实微信授权码完整跑通了取数链路。
+
+**操作步骤**
+
+1. 添加集成时，服务选「燃气（山东港华）」，登录方式选「**微信扫码授权**」。
+2. 配置页会给出授权链接（`.../vcc-oauth/oauth/authorize2/union?clientid=jnghwechat&redirectUri=...__ha_capture.html`）。也可以用项目 `outputs/燃气微信授权_扫码.png` 的二维码，在**手机微信**里打开授权页。
+3. 完成微信授权后，浏览器最终停在打不开的 `__ha_capture.html?code=xxxxx`（404 页面是正常的，它只负责把 code 留在地址栏）。
+4. **立刻复制地址栏里的整条链接**，粘贴到 HA 配置框提交。code 一次性、几分钟内有效，过期就重新扫码。
+5. HA 列出该微信绑定的燃气户号，选中即完成。之后自动生成「燃气账户余额」「待交燃气费」两个传感器。
+
+也可以直接把 `{"access_token":"...","refresh_token":"..."}`（浏览器 localStorage）粘进同一个输入框。
+
+**链路与接口（2026-11-13 实测）**
+
+| 步骤 | 请求 | 返回 |
+| --- | --- | --- |
+| 换 token | `POST /vcc-oauth/oauth/authorize2/accessToekn?authCode=<code>` | `access_token` / `refresh_token` / `expires_in=7200` |
+| 自动续期 | `POST /vcc-oauth/oauth/authorize2/refreshToken?refreshToken=<rt>` | **全新** token 对 |
+| 查户号 | `GET /nv1/vcc-cbs/usersubs/queryBindList?orgId=&clientid=&timestamp=&sign=` | `subsId` / `subsCode` / `orgId` / `displayAddr` |
+| 查余额 | `GET /nv1/vcc-cbs/charge/gasFeeBaseinfo?orgId=&subsId=&clientid=&timestamp=&sign=` | `availableBalance` / `feePayable` / `lastMeterReadingDate` |
+
+业务接口需要 `Authorization: Bearer <access_token>`、`clientid: jnghwechat` 以及签名：
+
+```python
+sign = md5(
+    "".join(k + str(v) for k, v in sorted(params.items())
+            if k != "sign" and v not in (None, ""))
+    + "hbasesoft.com-prod"
+).hexdigest().upper()
+```
+
+**关于长期运行**：`access_token` 有效期 7200 秒；`refresh_token` 是**一次性轮换**的，刷新成功后旧的 access / refresh 会立刻失效（分别返回 `20001 access token 过期` / `90143 refreshToken已失效`）。因此集成在每次续期后都会把新 token 写回 HA 的配置条目，重启也不会丢。只有在刷新链被别的客户端抢先消费、或微信侧撤销授权时，才需要重新扫码授权一次。H5 token 与 PC 网厅 token **不通用**。
+
+### 旧版备用：PC 网厅 tokenCode 链接 / 手动 token
 
 运行时抓包确认了官网的真实登录态机制：
 
@@ -79,7 +120,7 @@
 
 1. 手机微信打开「山东港华燃气集团有限公司」公众号 → **网上营业厅**；
 2. 点右上角「···」→「**复制链接**」；
-3. 在 HA 添加本集成时，登录方式选「**粘贴微信链接 / 手动 token**」，把整条链接粘进输入框并提交。
+3. 在 HA 添加本集成时，登录方式选「**粘贴 PC 网厅链接 / 手动 token**」（旧版路径），把整条链接粘进输入框并提交。
 
 集成会自动识别并接受四种格式：带 `tokenCode` / `code` / `token` 的完整链接（有 code 就自动调官网换 token）、单独的 `tokenCode=xxx`、`{"access_token":"...","refresh_token":"..."}`（浏览器 localStorage 的 `token`）、裸 `access_token`。换到的 token 会存入配置条目，之后 30 分钟自动刷新余额，终身不再需要短信。
 
@@ -102,7 +143,8 @@
 | --- | --- | --- |
 | `sensor.ji_nan_shui_wu_<户号>_shui_fei_zhang_hu_yu_e` | 水费账户余额 | 元 |
 | `sensor.ji_nan_shui_wu_<户号>_dai_jiao_shui_fei` | 待交水费 | 元 |
-| 燃气余额传感器 | 燃气账户余额 | 元 |
+| 燃气余额传感器 | 燃气账户余额（`availableBalance`） | 元 |
+| 燃气待交传感器 | 待交燃气费（`feePayable`） | 元 |
 
 传感器属性只保留给水号、单价、用水性质、违约金等非敏感字段；网厅返回的身份证号、详细住址、联系电话不会写入 HA 状态。
 
@@ -119,3 +161,4 @@
 - `0.1.1+`（main）：核实系统归属与两个 orgCode 同属一家公司，修正「不同短信通道」的误导性文案；补充官网自己也收不到短信的结论、96969 与微信公众号 / 生活缴费 / 智能表等免短信渠道说明。
 - `0.1.2`：新增「粘贴微信链接自动换 token」免短信路径。运行时抓包还原官网真实登录态机制（`tokenCode` → **GET** `/openapi/uv1/oauth/token` → `localStorage['token']`），修正旧代码用 POST 换 token 的错误；配置流支持粘贴链接 / tokenCode / localStorage JSON / 裸 token 四种格式；保存 `refresh_token` 到配置条目；界面与四语文案改为引导微信复制链接。水费功能不变。
 - `0.1.2+`（main）：完整实测「只用户号能否查余额」并给出否定结论（网关鉴权层拦截、功能清单无免登录入口、微信域同一套网关）；补充公众号二维码与 PC 微信复制链接的操作指引。功能不变。
+- `0.2.0`：**燃气完整跑通**。新增微信公众号 H5 授权路径：配置流「微信扫码授权」支持粘贴回调链接 / code / localStorage JSON，自动 `accessToekn` 换 token；新增 `GasH5Client`（Bearer + MD5 签名 + 自动续期）；验证 `usersubs/queryBindList` → `charge/gasFeeBaseinfo` 取到 `availableBalance` / `feePayable`；针对 `refresh_token` 一次性轮换，把续期后的新 token 持久化回配置条目；新增「待交燃气费」传感器，燃气属性改白名单脱敏；四语文案与界面同步更新。水费功能不变。
