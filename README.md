@@ -22,7 +22,7 @@
 
 ### 版本与更新
 
-- 当前发布版本 **`v0.2.0`**，GitHub Release 已发布；HA 市场 / HACS 靠 Release 识别新版本，`main` 分支上的代码与该 tag 一致。
+- 当前发布版本 **`v0.2.1`**，GitHub Release 已发布；HA 市场 / HACS 靠 Release 识别新版本，`main` 分支上的代码与该 tag 一致。
 - 若曾用「手动安装」直接覆盖文件部署，市场里的「已安装版本」可能仍停在此前下载时的旧版本号，而实际运行代码已是最新。在市场里点一次**更新**即可让版本记录对齐（下载内容与当前一致），之后重启 HA。
 - Release 发布后 tag 不再移动，后续功能改动会走新版本号。
 
@@ -176,3 +176,4 @@ sign = md5(
 - `0.2.0+`（main）：修复配置页出现 **`Translation error: MALFORMED_ARGUMENT`**。原因是 HA 前端用 ICU MessageFormat 编译每条文案，而 `wechat` / `manual` 说明里的 JSON 示例 `{"access_token":"...","refresh_token":"..."}` 带裸花括号，被当成非法参数占位符；改为纯文字描述，并清理会被 ICU 当作转义符的 ASCII 单引号、`method` 步骤未提供的 `{error}` 占位符。新增 `tools/check_translations.py` 做防回归校验；四语文案全部通过 `intl-messageformat` 真实解析。功能不变。
 - `0.2.0+`（main）：**水费移除「密码登录」和「手动填入 access_token」两种登录方式**。密码登录依赖的网厅图形码接口服务端故障（GDI+ 初始化失败）永远走不通；而网关根本不校验 `accesstoken`，手机号直连即可查到余额，手动 token 也只是重复。配置流水费现在只列「仅手机号直连」（默认）与「手机号 + 短信验证码」两项；删除 `async_step_water_captcha`、`WATER_CAPTCHA_SCHEMA`、`METHOD_PASSWORD`、`WaterClient.get_captcha` / `login_with_password` 及其四语文案与相关说明。燃气的三种方式不受影响。
 - `0.2.0+`（main）：核对 git 同步状态（`main` / `origin/main` / tag `v0.2.0` 一致，Release `v0.2.0` 已发布且压缩包含最新代码）；补充「版本与更新」说明与隐私安全提示；`.gitignore` 增加凭据文件与含明文密码的本地部署脚本防呆排除。功能不变，tag 保持不变。
+- `0.2.1`：**发布新版本以对齐 HA 市场**。把 `main` 上截至当前的全部代码（分步配置流、ICU 文案修复、水费精简登录方式、文案与凭据防呆规则）打包为 `v0.2.1` tag 与 Release，`manifest.json` 版本同步为 `0.2.1`。`v0.2.0` 的 tag 保持不动；曾手动覆盖文件部署导致市场「已安装版本」滞后的，在市场点一次更新即可对齐。功能无变化。
