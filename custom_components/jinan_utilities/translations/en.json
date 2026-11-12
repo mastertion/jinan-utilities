@@ -25,7 +25,7 @@
       },
       "sms": {
         "title": "SMS code",
-        "description": "Enter the SMS code you received (gas: 5 digits; water needs no image captcha). Tick resend to send again.\n\n{sms_status}\n\nIf water SMS never arrives, use Phone only instead - same result.\n\n{error}",
+        "description": "Enter the SMS code you received (gas: 5 digits; water needs no image captcha). Tick resend to send again.\n\n{sms_status}\n\nIf the official gas website also fails to deliver SMS, call 96969 to check the registered number, or use manual access_token.\n\nIf water SMS never arrives, use Phone only instead - same result.\n\n{error}",
         "data": {
           "smscode": "SMS code",
           "resend": "Resend SMS"
@@ -49,7 +49,7 @@
       },
       "org": {
         "title": "Select gas company",
-        "description": "The portal exposes two organisations; picking the wrong one can make the SMS silently fail. Choose the company shown on your gas bill / WeChat account. If no SMS arrives, try the other one.\n\n{error}",
+        "description": "Both orgCodes belong to Shandong Towngas Co., Ltd.: 10401_JNGH0105 (Gaoxin Customer Service Center) and SDJH0105 (head office). Pick the service center shown on your bill, or keep the default.\n\nIf the official website itself also fails to deliver an SMS, the issue is the registered phone number / carrier channel, not this integration. Call 96969 to verify, or use manual access_token.\n\n{error}",
         "data": {
           "org_code": "Company (orgCode / stdCode)"
         }

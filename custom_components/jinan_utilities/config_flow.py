@@ -99,8 +99,8 @@ class JinanUtilitiesConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             try:
                 if self.service == SERVICE_GAS:
                     self.gas = GasClient(session)
-                    # 实测 queryOrgs 返回两个组织，不同组织可能走不同短信通道；
-                    # 不再写死第一个，让用户按开户公司选。
+                    # queryOrgs 返回两个组织（同属山东港华燃气集团），
+                    # 不再写死第一个，让用户按缴费单上的服务中心选。
                     self.orgs = await self.gas.query_orgs()
                     if len(self.orgs) > 1:
                         return await self.async_step_org()
@@ -132,7 +132,7 @@ class JinanUtilitiesConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     # ---------------- 燃气选择所属公司（stdCode / 短信通道） ----------------
     async def async_step_org(self, user_input=None) -> FlowResult:
-        """港华有两个组织，选错可能短信静默不投递，所以显式让用户选."""
+        """两个 orgCode 同属山东港华燃气集团，按缴费单上的服务中心选."""
         errors = {}
         last_err = ""
         options = {

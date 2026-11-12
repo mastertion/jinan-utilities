@@ -73,8 +73,9 @@ class GasClient:
         self.session = session
         self.token: str | None = None
         self.kaptcha: str = ""
-        # 官网 SPA 用 queryOrgs 的 orgCode 作为 stdCode；实测有两个组织，
-        # 不同组织可能走不同短信通道，因此由配置流让用户选，不再写死第一个。
+        # 官网 SPA 用 queryOrgs 的 orgCode 作为 stdCode；实测两个组织
+        # 均属「山东港华燃气有限公司」（其一为高新客户服务中心），
+        # 由配置流让用户选，不再写死第一个。
         self.std_code: str = "10401_JNGH0105"
         # /login 页面实际渲染出来的 stdCode（必须非空，否则短信不会真发）
         self.page_std_code: str | None = None
@@ -208,11 +209,14 @@ class GasClient:
         return (
             f"已向 {masked} 提交短信（组织 stdCode={r['std_code']}，"
             f"服务端回复：{r['data']}）。\n\n"
-            "若 1 分钟后仍未收到：①确认这个手机号就是燃气账户登记号码；"
+            "注意：实测官网返回「发送成功」并不代表短信真的投递。\n\n"
+            "若 1 分钟后仍未收到：①确认这个手机号就是燃气账户登记号码"
+            "（户主可能是家人号码，与登记号不一致时服务端仍回成功但不发）；"
             "②检查短信是否被手机安全软件/运营商拦截；"
-            "③换一个「所属公司」重试（两个组织走不同短信通道）；"
+            "③换一个「所属公司」重试；"
             "④官网按手机号限流，短时间重复点「重新发送」会被拒绝，请等 10~30 分钟；"
-            "⑤仍不行可用「手动填入 access_token」完全绕开短信。"
+            "⑤若官网页面自己登录也收不到，说明是账户/通道问题而非本集成，"
+            "请拨 96969 核对登记手机号，或改用「手动填入 access_token」完全绕开短信。"
         )
 
     async def send_sms(self, phone: str, kaptcha: str | None) -> None:
