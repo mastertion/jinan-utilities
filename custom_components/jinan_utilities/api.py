@@ -376,6 +376,14 @@ class GasClient:
             inner.get("refresh_token") or data.get("refresh_token") or ""
         )
         if not token:
+            err = str(data.get("error") or "")
+            desc = str(data.get("error_description") or "")
+            if err == "invalid_grant" or "Invalid authorization code" in desc:
+                raise GasError(
+                    "tokenCode 已失效或已被使用（官网返回 invalid_grant）。"
+                    "请在微信里重新打开「网上营业厅」，立刻点右上角「···」→「复制链接」，"
+                    "把新链接粘贴进来；这个 code 只能用一次且有效期很短。"
+                )
             raise GasError(
                 f"换取 token 失败: {json.dumps(data, ensure_ascii=False)[:200]}"
             )
