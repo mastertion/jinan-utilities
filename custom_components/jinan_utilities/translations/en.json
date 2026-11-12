@@ -41,7 +41,7 @@
       },
       "manual": {
         "title": "Paste WeChat link / manual token (no SMS)",
-        "description": "Gas (recommended, no SMS): open the 'Shandong Towngas' WeChat official account > Online Hall > tap the top-right menu > Copy Link, then paste the FULL link below. If it contains tokenCode or code, the integration exchanges it for an access_token automatically. You can also paste {\"access_token\":\"...\",\"refresh_token\":\"...\"} from localStorage, or a bare access_token.\n\nGas (desktop): sign in at https://wt.shandongtowngas.com.cn/ , DevTools Network, copy token from any /openapi/uv1/ request.\n\nWater: prefer Phone only, this step is normally unnecessary.\n\n{error}",
+        "description": "A bare gas account number cannot return any data (the gateway requires an access_token before it even reads the account number).\n\nGas (recommended, no SMS): open the 'Shandong Towngas' WeChat official account > Online Hall > tap the top-right menu > Copy Link, then paste the FULL link below. If it contains tokenCode or code, the integration exchanges it for an access_token automatically. You can also paste {\"access_token\":\"...\",\"refresh_token\":\"...\"} from localStorage, or a bare access_token.\n\nGas (desktop): sign in at https://wt.shandongtowngas.com.cn/ , DevTools Network, copy token from any /openapi/uv1/ request.\n\nWater: prefer Phone only, this step is normally unnecessary.\n\n{error}",
         "data": {
           "access_token": "WeChat link / tokenCode / access_token",
           "refresh_token": "refresh_token (optional)"

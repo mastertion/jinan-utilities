@@ -41,7 +41,7 @@
       },
       "manual": {
         "title": "粘贴微信链接 / 手动 token（燃气不用短信）",
-        "description": "**燃气（推荐，完全不用短信）**：手机微信打开「山东港华燃气集团有限公司」公众号 → 网上营业厅 → 右上角「···」→「复制链接」→ 把**整条链接**粘贴到下面。链接里若带 `tokenCode` 或 `code`，集成会自动向官网换取 `access_token`；也可直接粘贴 `{\"access_token\":\"...\",\"refresh_token\":\"...\"}`（浏览器 localStorage 里的 token）或裸 `access_token`。\n\n**燃气（电脑浏览器）**：登录 https://wt.shandongtowngas.com.cn/ → F12 → Network → 任意 `/openapi/uv1/...` 请求 → Query String 里复制 `token`。\n\n**水费**：优先用「仅手机号直连」，通常不需要这一步；若需手动，登录 http://wt.jnwater.com.cn/shoufeizjj3/WT/index.html → F12 → 任意 `api/WxProgramApi/` 请求 → 请求标头里的 `accesstoken`。\n\n{error}",
+        "description": "**只填燃气户号查不到余额**：实测网关在鉴权层就要求 `access_token`，户号只在拿到登录态后用于选择具体哪一户。请先取得登录态。\n\n**燃气（推荐，完全不用短信）**：手机微信打开「山东港华燃气集团有限公司」公众号 → 网上营业厅 → 右上角「···」→「复制链接」→ 把**整条链接**粘贴到下面。链接里若带 `tokenCode` 或 `code`，集成会自动向官网换取 `access_token`；也可直接粘贴 `{\"access_token\":\"...\",\"refresh_token\":\"...\"}`（浏览器 localStorage 里的 token）或裸 `access_token`。\n\n**燃气（电脑浏览器）**：登录 https://wt.shandongtowngas.com.cn/ → F12 → Network → 任意 `/openapi/uv1/...` 请求 → Query String 里复制 `token`。\n\n**水费**：优先用「仅手机号直连」，通常不需要这一步；若需手动，登录 http://wt.jnwater.com.cn/shoufeizjj3/WT/index.html → F12 → 任意 `api/WxProgramApi/` 请求 → 请求标头里的 `accesstoken`。\n\n{error}",
         "data": {
           "access_token": "微信链接 / tokenCode / access_token",
           "refresh_token": "refresh_token / refreshtoken（可选）"

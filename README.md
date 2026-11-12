@@ -52,6 +52,21 @@
 4. 换另一个 orgCode 重试（两个组织实测都试过，成功率不高，但成本很低）。
 5. **拨打 96969**（济南能源 24 小时热线）核对 / 变更登记手机号 —— 这是让短信链路恢复全自动的唯一办法，代码侧已全部就绪。
 
+### 只给「燃气户号」能不能查余额？（已实测：不能）
+
+这是最容易被问到的捷径，2026-11 已做完整对照实验，**结论是否定的**：港华网关在鉴权层就拦掉请求，户号根本没有机会被处理。
+
+| 实验 | 结果 |
+| --- | --- |
+| 未登录打开官网首页 / `/pay` / `/query` / `/business/pay` | 只放行 3 个组织配置接口（`groupFuncList` / `queryOrgs` / `queryServicePhone`）；业务页一律弹「您当前尚未登录，请先登录后再进行操作」 |
+| `groupFuncList` 全部 77 个功能项 | 全是登录后的 SPA 路由（我要缴费 / 户号管理 / 用气记录 …），**没有任何「免登录输户号查余额」入口** |
+| `subs/querySubs`、`user/queryBindSubsLimitServer`、`oauth/user/me`、`pay/queryFee`、`user/queryBindSubs` 等，带 9 种户号参数名（`userCode` / `subCode` / `custCode` / `accountNo` …） | 无 token 或空 token 一律 `{"resultCode":"40058","resultMsg":"token不能为空"}`；假 token 一律 `{"resultCode":"20001","resultMsg":"access token 过期"}` |
+| 猜测的 `subs/querySubByCode`、`subs/queryBalance`、`charge/queryBalance` 等 12 个接口 | 404，接口不存在 |
+| 模仿水费那套 `Cookie: UserInfo` + `openid` 头 | 同样 `token不能为空`，燃气不认这套 |
+| 微信域 `weixin.shandongtowngas.com.cn/vcc-openapi/uv1/...`、`vcc-wx/member/...` | 同一套网关，仍返回 `token不能为空`；`_APP_ID` 非微信环境为空，网页授权只在微信内生效 |
+
+**所以「户号」在本集成里的角色只是：拿到有效 token 之后，从 `querySubs` 返回的户号列表里选中具体哪一户。** 单独一个户号换不出任何数据，也不等价于登录凭据。户号真正能用的地方是官方渠道（支付宝 / 微信「生活缴费 → 燃气费」输户号查余额、NB-IoT 表长按看余额、拨 96969 报户号核对登记手机号），这些是人工查询，HA 无法自动调用。
+
 ### 推荐：粘贴微信链接，自动换 token（完全不用短信）
 
 运行时抓包确认了官网的真实登录态机制：
@@ -69,6 +84,8 @@
 集成会自动识别并接受四种格式：带 `tokenCode` / `code` / `token` 的完整链接（有 code 就自动调官网换 token）、单独的 `tokenCode=xxx`、`{"access_token":"...","refresh_token":"..."}`（浏览器 localStorage 的 `token`）、裸 `access_token`。换到的 token 会存入配置条目，之后 30 分钟自动刷新余额，终身不再需要短信。
 
 > `tokenCode` 是一次性的且前端可能很快把 URL 参数清掉，所以**复制后请尽快粘贴**；若提示「tokenCode 无效或已被使用」，在微信里重新打开网上营业厅再复制一次即可。若链接里已经没有参数，改用下方 F12 方式取 `access_token`。
+
+**找不到公众号 / 找不到「网上营业厅」菜单时**：官网 `queryServicePhone` 返回的公众号二维码指向 `http://weixin.qq.com/r/PUiMlIHEzNyzrcX39x0v`（官网首页右下角二维码是 `http://weixin.qq.com/q/zkhN_N3lIuJb4R58kWRG`），用微信扫一下即可关注「山东港华燃气集团有限公司」。底部菜单通常叫「**网上营业厅**」或「**燃气服务 → 网上营业厅**」，进去后**立刻**点右上角「···」→「复制链接」；如果只拿到 `.../home/` 没有参数，说明前端已把 `tokenCode` 清掉，退出菜单重新点一次、落地后马上复制。用 **PC 版微信**打开公众号菜单时可以直接右键「复制链接」，比手机更容易抄到完整 URL。
 
 **其他免短信渠道**（官方公开信息）：
 
@@ -101,3 +118,4 @@
 - `0.1.1`：恢复燃气维护。对齐官网隐藏 iframe 的真实 OAuth 链（`scope=read write` + 微信域 `outhCallBack`）；组织可选而非写死第一个；图形码校验改为非阻断（实测官网在 `undefined` 变体下不校验）；补齐浏览器同款请求头；新增 60 秒限频保护、服务端原文/组织/脱敏号码诊断回显、手动 token 兜底指引。水费功能不变。
 - `0.1.1+`（main）：核实系统归属与两个 orgCode 同属一家公司，修正「不同短信通道」的误导性文案；补充官网自己也收不到短信的结论、96969 与微信公众号 / 生活缴费 / 智能表等免短信渠道说明。
 - `0.1.2`：新增「粘贴微信链接自动换 token」免短信路径。运行时抓包还原官网真实登录态机制（`tokenCode` → **GET** `/openapi/uv1/oauth/token` → `localStorage['token']`），修正旧代码用 POST 换 token 的错误；配置流支持粘贴链接 / tokenCode / localStorage JSON / 裸 token 四种格式；保存 `refresh_token` 到配置条目；界面与四语文案改为引导微信复制链接。水费功能不变。
+- `0.1.2+`（main）：完整实测「只用户号能否查余额」并给出否定结论（网关鉴权层拦截、功能清单无免登录入口、微信域同一套网关）；补充公众号二维码与 PC 微信复制链接的操作指引。功能不变。
