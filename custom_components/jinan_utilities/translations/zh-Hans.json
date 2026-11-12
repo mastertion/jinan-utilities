@@ -3,14 +3,14 @@
     "step": {
       "user": {
         "title": "济南公用事业",
-        "description": "选择要接入的服务。**燃气（山东港华）**走微信扫码授权，不用短信；**水费（济南水务）**只需网厅注册手机号。下一步会根据这里的选择，只显示该服务支持的登录方式。",
+        "description": "选择要接入的服务。**燃气（山东港华）**走微信扫码授权，不用短信；**水费（济南水务）**只需网厅注册手机号。下一步会根据这里的选择，只显示该服务支持的登录方式（水费共 2 种）。",
         "data": {
           "service": "服务类型"
         }
       },
       "method": {
         "title": "选择登录方式",
-        "description": "已选择 **{service}**。下面只列出这项服务支持的登录方式。\n\n燃气推荐「微信扫码授权」：微信授权一次即可自动查余额、自动续期，完全不用短信；「手机号 + 短信验证码」在官网页面自己也收不到，仅作排查参考。\n\n水费推荐「仅手机号直连」：填注册手机号即可查出绑定户号与余额，无需短信 / 密码 / token。\n\n如需更换服务，取消本流程重新添加集成即可。",
+        "description": "已选择 **{service}**。下面只列出这项服务支持的登录方式。\n\n燃气推荐「微信扫码授权」：微信授权一次即可自动查余额、自动续期，完全不用短信；「手机号 + 短信验证码」在官网页面自己也收不到，仅作排查参考。\n\n水费只有两种方式：「仅手机号直连」（推荐，填注册手机号即可查出绑定户号与余额）和「手机号 + 短信验证码」（备用）。\n\n如需更换服务，取消本流程重新添加集成即可。",
         "data": {
           "login_method": "登录方式"
         }
@@ -44,17 +44,9 @@
           "resend": "重新发送短信"
         }
       },
-      "water_captcha": {
-        "title": "水务密码登录",
-        "description": "**注意：济南水务网厅的图形验证码接口当前服务端故障**（返回 The type initializer for Gdip threw an exception，服务端缺 GDI+ 组件），这条路通常走不通。请删除本流程，改用「仅手机号直连」或「手机号 + 短信验证码」。\n\n**如果下方图片没有显示，请[点此打开图形验证码图片]({captcha_url})**\n\n![图形验证码]({captcha_url})\n\n{error}",
-        "data": {
-          "password": "网厅登录密码",
-          "kaptcha": "图形验证码"
-        }
-      },
       "manual": {
         "title": "粘贴 PC 网厅链接 / 手动 token（旧版燃气）",
-        "description": "**只填燃气户号查不到余额**：实测网关在鉴权层就要求 `access_token`，户号只在拿到登录态后用于选择具体哪一户。请先取得登录态。\n\n**燃气 PC 网厅（旧版，不推荐）**：手机微信打开「山东港华燃气集团有限公司」公众号 → 网上营业厅 → 右上角「···」→「复制链接」→ 把**整条链接**粘贴到下面。链接里若带 `tokenCode` 或 `code`，集成会自动向官网换取 `access_token`；也可直接粘贴浏览器 localStorage 里的 token 对象文本（含 access_token 与 refresh_token 两个字段）或裸 `access_token`。\n\n**燃气（电脑浏览器）**：登录 https://wt.shandongtowngas.com.cn/ → F12 → Network → 任意 `/openapi/uv1/...` 请求 → Query String 里复制 `token`。\n\n**水费**：优先用「仅手机号直连」，通常不需要这一步；若需手动，登录 http://wt.jnwater.com.cn/shoufeizjj3/WT/index.html → F12 → 任意 `api/WxProgramApi/` 请求 → 请求标头里的 `accesstoken`。\n\n{error}",
+        "description": "**只填燃气户号查不到余额**：实测网关在鉴权层就要求 `access_token`，户号只在拿到登录态后用于选择具体哪一户。请先取得登录态。\n\n**燃气 PC 网厅（旧版，不推荐）**：手机微信打开「山东港华燃气集团有限公司」公众号 → 网上营业厅 → 右上角「···」→「复制链接」→ 把**整条链接**粘贴到下面。链接里若带 `tokenCode` 或 `code`，集成会自动向官网换取 `access_token`；也可直接粘贴浏览器 localStorage 里的 token 对象文本（含 access_token 与 refresh_token 两个字段）或裸 `access_token`。\n\n**燃气（电脑浏览器）**：登录 https://wt.shandongtowngas.com.cn/ → F12 → Network → 任意 `/openapi/uv1/...` 请求 → Query String 里复制 `token`。\n\n{error}",
         "data": {
           "access_token": "微信链接 / tokenCode / access_token",
           "refresh_token": "refresh_token / refreshtoken（可选）"

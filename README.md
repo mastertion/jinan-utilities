@@ -24,16 +24,15 @@
 
 添加集成时分两步：**先选服务类型**，第二步的下拉框会**只列出该服务支持的登录方式**（燃气不再出现水费专用的方式，反之亦然）：
 
-| 服务 | 推荐方式 | 说明 |
+| 服务 | 登录方式 | 说明 |
 | --- | --- | --- |
-| 水费（济南水务） | **仅手机号直连** | 填网厅注册手机号即可查出绑定户号与余额，无需短信 / 密码 / token |
+| 水费（济南水务） | **仅手机号直连** | 填网厅注册手机号即可查出绑定户号与余额，无需短信 |
 | 水费 | 手机号 + 短信验证码 | 已调通，作为备用；水务不需要图形码 |
-| 水费 | 手动填入 access_token | 兜底 |
-| 水费 | 密码登录 | 网厅图形验证码服务当前故障，暂不可用 |
 | 燃气（山东港华 / 济南港华） | **微信扫码授权** | 已实测跑通：微信扫码 → 复制 `__ha_capture.html?code=...` 链接 → 粘贴进 HA。集成自动换 token、自动续期、查余额，完全不用短信 |
 | 燃气 | 粘贴 PC 网厅链接 / 手动 token | 旧版备用路径（`tokenCode` / localStorage JSON / 裸 `access_token`） |
 | 燃气 | 短信验证码 | 官网页面自己也收不到短信，实际不可用；保留代码与诊断回显供排查 |
-| 水费 | 短信验证码 / 密码 / token | 备用路径 |
+
+> 水费原本还有「密码登录」和「手动填入 access_token」两项，现已移除：网厅图形验证码接口服务端故障（GDI+ 初始化失败）导致密码登录永远走不通；而网关根本不校验 `accesstoken`，手机号直连即可查到数据，手动 token 没有意义。水费只保留上面两种。
 
 配置时会列出该微信 / 手机号绑定的户号，选中后创建条目。
 
@@ -168,3 +167,4 @@ sign = md5(
 - `0.2.0+`（main）：配置流拆成两步，**登录方式按所选服务类型动态显示**（燃气只列微信扫码授权 / PC 网厅手动 token / 短信；水费只列手机号直连 / 短信 / 密码 / 手动 token），四语文案同步。功能不变。
 - `0.2.0`：**燃气完整跑通**。新增微信公众号 H5 授权路径：配置流「微信扫码授权」支持粘贴回调链接 / code / localStorage JSON，自动 `accessToekn` 换 token；新增 `GasH5Client`（Bearer + MD5 签名 + 自动续期）；验证 `usersubs/queryBindList` → `charge/gasFeeBaseinfo` 取到 `availableBalance` / `feePayable`；针对 `refresh_token` 一次性轮换，把续期后的新 token 持久化回配置条目；新增「待交燃气费」传感器，燃气属性改白名单脱敏；四语文案与界面同步更新。水费功能不变。
 - `0.2.0+`（main）：修复配置页出现 **`Translation error: MALFORMED_ARGUMENT`**。原因是 HA 前端用 ICU MessageFormat 编译每条文案，而 `wechat` / `manual` 说明里的 JSON 示例 `{"access_token":"...","refresh_token":"..."}` 带裸花括号，被当成非法参数占位符；改为纯文字描述，并清理会被 ICU 当作转义符的 ASCII 单引号、`method` 步骤未提供的 `{error}` 占位符。新增 `tools/check_translations.py` 做防回归校验；四语文案全部通过 `intl-messageformat` 真实解析。功能不变。
+- `0.2.0+`（main）：**水费移除「密码登录」和「手动填入 access_token」两种登录方式**。密码登录依赖的网厅图形码接口服务端故障（GDI+ 初始化失败）永远走不通；而网关根本不校验 `accesstoken`，手机号直连即可查到余额，手动 token 也只是重复。配置流水费现在只列「仅手机号直连」（默认）与「手机号 + 短信验证码」两项；删除 `async_step_water_captcha`、`WATER_CAPTCHA_SCHEMA`、`METHOD_PASSWORD`、`WaterClient.get_captcha` / `login_with_password` 及其四语文案与相关说明。燃气的三种方式不受影响。

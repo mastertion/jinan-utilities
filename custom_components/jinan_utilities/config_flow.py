@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import os
 import time
-from typing import Any
 
 import aiohttp
 import voluptuous as vol
@@ -35,7 +34,6 @@ from .const import (
     CONF_WECHAT_LINK,
     DOMAIN,
     GAS_H5_AUTHORIZE_URL,
-    METHOD_PASSWORD,
     METHOD_PHONE,
     METHOD_SMS,
     METHOD_TOKEN,
@@ -56,11 +54,11 @@ GAS_METHODS = {
     METHOD_TOKEN: "粘贴 PC 网厅链接 / 手动 token（旧版）",
     METHOD_SMS: "手机号 + 短信验证码（官网也收不到，仅供参考）",
 }
+# 水费只保留两条可用路径：密码登录因网厅图形码服务端故障不可用，
+# 手动 token 也没有意义（网关根本不校验 token，手机号直连即可）。
 WATER_METHODS = {
     METHOD_PHONE: "仅手机号直连（推荐）",
     METHOD_SMS: "手机号 + 短信验证码",
-    METHOD_PASSWORD: "密码登录（网厅图形码故障，暂不可用）",
-    METHOD_TOKEN: "手动填入 access_token",
 }
 GAS_DEFAULT_METHOD = METHOD_WECHAT
 WATER_DEFAULT_METHOD = METHOD_PHONE
@@ -81,10 +79,6 @@ SMS_SCHEMA = vol.Schema({
     vol.Optional("resend", default=False): bool,
 })
 CAPTCHA_SCHEMA = vol.Schema({vol.Required("kaptcha"): str})
-WATER_CAPTCHA_SCHEMA = vol.Schema({
-    vol.Required("password"): str,
-    vol.Required("kaptcha"): str,
-})
 MANUAL_SCHEMA = vol.Schema({
     vol.Required("access_token"): str,
     vol.Optional("refresh_token", default=""): str,
@@ -131,10 +125,6 @@ class JinanUtilitiesConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             self.login_method = method if method in allowed else default
             if self.login_method == METHOD_WECHAT:
                 return await self.async_step_wechat()
-            if self.service == SERVICE_GAS and self.login_method in (
-                METHOD_PASSWORD, METHOD_PHONE
-            ):
-                self.login_method = METHOD_SMS
             return await self.async_step_phone()
         service_label = (
             "燃气（山东港华）" if self.service == SERVICE_GAS
@@ -174,8 +164,6 @@ class JinanUtilitiesConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     if not self.gs_list:
                         return self.async_abort(reason="water_no_bind")
                     return await self.async_step_pick_gs()
-                if self.login_method == METHOD_PASSWORD:
-                    return await self.async_step_water_captcha()
                 await self.water.send_sms(self.phone)
                 return await self.async_step_sms()
             except (GasError, WaterError) as err:
@@ -283,37 +271,37 @@ class JinanUtilitiesConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             else:
                 session = async_get_clientsession(self.hass)
                 try:
-                    if self.service == SERVICE_GAS:
-                        self.gas = GasClient(session)
-                        cred = parse_gas_credential(raw)
-                        token = cred["token"]
-                        refresh = cred["refresh"] or refresh_in
-                        # 微信链接里带 tokenCode / code 时，直接调官网 GET 换 token
-                        if not token and cred["code"]:
-                            exchanged = await self.gas.exchange_code(cred["code"])
-                            token = exchanged["token"]
-                            refresh = refresh or exchanged["refresh"]
-                        if not token:
-                            raise GasError(
-                                "没能从粘贴内容里找到 tokenCode / access_token。"
-                                "请在微信里打开公众号网上营业厅，点右上角「···」→ "
-                                "「复制链接」，把完整链接粘贴进来（链接需带 "
-                                "tokenCode 或 token 参数）；若页面已把参数清掉，"
-                                "可改用浏览器 F12 复制 access_token。"
-                            )
-                        self.gas.token = token
-                        self.gas.refresh_token = refresh or None
-                        self.subs = await self.gas.query_subs()
-                        if not self.subs:
-                            raise GasError("token 无效或已过期，未查到户号")
-                        return await self.async_step_pick_user()
-                    self.water = WaterClient(session)
-                    self.water.access_token = parse_gas_credential(raw)["token"] or raw
-                    self.water.refresh_token = refresh_in
-                    self.gs_list = await self.water.get_bind_list(self.phone)
-                    if not self.gs_list:
-                        return self.async_abort(reason="water_no_bind")
-                    return await self.async_step_pick_gs()
+                    if self.service != SERVICE_GAS:
+                        # 水费已移除手动 token 入口；旧流程残留时回退到手机号直连
+                        self.login_method = METHOD_PHONE
+                        self.water = WaterClient(session)
+                        self.gs_list = await self.water.get_bind_list(self.phone)
+                        if not self.gs_list:
+                            return self.async_abort(reason="water_no_bind")
+                        return await self.async_step_pick_gs()
+                    self.gas = GasClient(session)
+                    cred = parse_gas_credential(raw)
+                    token = cred["token"]
+                    refresh = cred["refresh"] or refresh_in
+                    # 微信链接里带 tokenCode / code 时，直接调官网 GET 换 token
+                    if not token and cred["code"]:
+                        exchanged = await self.gas.exchange_code(cred["code"])
+                        token = exchanged["token"]
+                        refresh = refresh or exchanged["refresh"]
+                    if not token:
+                        raise GasError(
+                            "没能从粘贴内容里找到 tokenCode / access_token。"
+                            "请在微信里打开公众号网上营业厅，点右上角「···」→ "
+                            "「复制链接」，把完整链接粘贴进来（链接需带 "
+                            "tokenCode 或 token 参数）；若页面已把参数清掉，"
+                            "可改用浏览器 F12 复制 access_token。"
+                        )
+                    self.gas.token = token
+                    self.gas.refresh_token = refresh or None
+                    self.subs = await self.gas.query_subs()
+                    if not self.subs:
+                        raise GasError("token 无效或已过期，未查到户号")
+                    return await self.async_step_pick_user()
                 except (GasError, WaterError) as err:
                     errors["base"] = "manual_failed"
                     last_err = str(err)
@@ -323,47 +311,6 @@ class JinanUtilitiesConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="manual", data_schema=MANUAL_SCHEMA, errors=errors,
             description_placeholders={"error": last_err},
-        )
-
-    # ---------------- 水务密码登录（图形码） ----------------
-    async def async_step_water_captcha(self, user_input=None) -> FlowResult:
-        """已注册用户用手机号 + 密码 + 图形码登录，全程不需要短信."""
-        errors = {}
-        last_err = ""
-        if user_input is not None:
-            pwd = (user_input.get("password") or "").strip()
-            kap = (user_input.get("kaptcha") or "").strip()
-            if not pwd or not kap:
-                errors["base"] = "need_kaptcha"
-                last_err = "请填写登录密码和图形验证码"
-            else:
-                try:
-                    await self.water.login_with_password(self.phone, pwd, kap)
-                    self.gs_list = await self.water.get_bind_list(self.phone)
-                    if not self.gs_list:
-                        return self.async_abort(reason="water_no_bind")
-                    return await self.async_step_pick_gs()
-                except WaterError as err:
-                    errors["base"] = "login_failed"
-                    last_err = str(err)
-                except aiohttp.ClientError as err:
-                    errors["base"] = "network"
-                    last_err = str(err)
-        # 每次都换一张新图（服务端图形码一次性有效）
-        try:
-            cap = await self.water.get_captcha(self.phone)
-            if len(cap) < 200:
-                raise WaterError("图形验证码图片为空")
-            path = self.hass.config.path("www", "jinan_water_kaptcha.jpg")
-            await self.hass.async_add_executor_job(self._write_captcha, path, cap)
-            url = "/local/jinan_water_kaptcha.jpg?t=%d" % int(time.time() * 1000)
-        except (WaterError, aiohttp.ClientError, OSError) as err:
-            errors.setdefault("base", "captcha_failed")
-            last_err = str(err)
-            url = ""
-        return self.async_show_form(
-            step_id="water_captcha", data_schema=WATER_CAPTCHA_SCHEMA, errors=errors,
-            description_placeholders={"error": last_err, "captcha_url": url},
         )
 
     # ---------------- 燃气图形验证码 ----------------

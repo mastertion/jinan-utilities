@@ -691,7 +691,6 @@ class WaterClient:
         self.session = session
         self.access_token: str | None = None
         self.refresh_token: str | None = None
-        self.captcha_token: str = ""
 
     @staticmethod
     def _headers(phone: str | None = None, at: str | None = None, rt: str | None = None) -> dict:
@@ -768,53 +767,6 @@ class WaterClient:
             if rt and not self.refresh_token:
                 self.refresh_token = rt
 
-    async def get_captcha(self, phone: str) -> bytes:
-        """密码登录图形码：ImgCode 返回 {img, token}，token 要回传给登录接口."""
-        url = WATER_BASE + "/shoufeizjj3/api/HomeApi/ImgCode"
-        async with self.session.post(
-            url, headers=self._headers(phone), data="{}"
-        ) as resp:
-            raw = await resp.read()
-            ctype = resp.headers.get("Content-Type", "")
-        if "json" in ctype or raw[:1] == b"{":
-            try:
-                obj = json.loads(raw)
-            except ValueError as err:
-                raise WaterError(f"图形验证码响应异常: {err}") from err
-            try:
-                self._check(obj)
-            except WaterError as err:
-                # 服务端 Linux 缺 libgdiplus，ImgCode 直接 500
-                if "Gdip" in str(err) or "type initializer" in str(err):
-                    raise WaterError(
-                        "济南水务网厅图形验证码服务当前不可用（服务端 GDI+ 初始化失败）；"
-                        "请改用「仅手机号直连」或「手机号 + 短信验证码」"
-                    ) from err
-                raise
-            d = self._payload(obj)
-            if not isinstance(d, dict):
-                d = obj
-            img = (d.get("img") or d.get("Img") or d.get("picPath")
-                   or d.get("PicPath") or d.get("image") or "")
-            self.captcha_token = str(d.get("token") or d.get("Token") or "")
-            if not img:
-                raise WaterError("图形验证码接口未返回图片，请改用「手动填入 access_token」")
-            if img.startswith("data:"):
-                import base64  # noqa: PLC0415
-                return base64.b64decode(img.split(",", 1)[-1])
-            if img.startswith("http"):
-                async with self.session.get(img) as r:
-                    return await r.read()
-            if img.startswith("/"):
-                async with self.session.get(WATER_BASE + img) as r:
-                    return await r.read()
-            import base64  # noqa: PLC0415
-            try:
-                return base64.b64decode(img)
-            except Exception as err:
-                raise WaterError("图形验证码格式无法识别") from err
-        return raw
-
     async def send_sms(self, phone: str) -> None:
         await self._post(f"WxProgramApi/SendCheckCode?PhoneNum={phone}", phone)
 
@@ -828,25 +780,6 @@ class WaterClient:
         data = await self._post(
             "WxProgramApi/CommonCheckSign", phone,
             {"FMOBILE": phone, "FSOU": "PC", "FAPPID": "1", "checkCode": sms},
-        )
-        self._extract_tokens(data)
-        return data
-
-    async def login_with_password(self, phone: str, password: str, kaptcha: str) -> dict:
-        """密码登录（已注册用户，无需短信）：FSOU=2 + FPASSWORD + 图形码.
-
-        FREMARK 是 ImgCode 返回的 token，服务端用它校验图形码。
-        """
-        data = await self._post(
-            "WxProgramApi/CommonCheckSign", phone,
-            {
-                "FMOBILE": phone,
-                "FPASSWORD": password,
-                "FSOU": 2,
-                "FAPPID": kaptcha,
-                "FUNIONID": "",
-                "FREMARK": self.captcha_token,
-            },
         )
         self._extract_tokens(data)
         return data

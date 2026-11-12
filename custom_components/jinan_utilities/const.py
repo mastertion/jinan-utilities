@@ -57,12 +57,14 @@ WATER_COOKIE = "UserInfo={%22UserName%22:%22%22%2C%22ApplicationId%22:%22%22}"
 
 CONF_PHONE = "phone"
 CONF_SMS_CODE = "smscode"
-# 登录方式：仅手机号 / 短信 / 密码 / 手动填入浏览器 token
+# 登录方式
+# 水费：手机号直连（推荐）/ 短信。密码登录因网厅图形码服务端故障不可用、
+#       手动 token 也无意义（网关不校验 token），两者已从配置流移除。
+# 燃气：微信 H5 授权（推荐）/ PC 网厅手动 token / 短信。
 CONF_LOGIN_METHOD = "login_method"
 METHOD_PHONE = "phone_only"    # 仅济南水务：只需注册手机号，无需短信/密码/token
 METHOD_SMS = "sms"
-METHOD_PASSWORD = "password"   # 仅济南水务：账号密码 + 图形码，无需短信
-METHOD_TOKEN = "token"
+METHOD_TOKEN = "token"         # 燃气旧版 PC 网厅手动 token
 METHOD_WECHAT = "wechat"           # 燃气微信公众号 H5 授权（无需短信，推荐）
 CONF_USER_CODE = "user_code"       # 燃气户号
 CONF_ORG_CODE = "org_code"         # 燃气所属组织 stdCode（决定短信通道）

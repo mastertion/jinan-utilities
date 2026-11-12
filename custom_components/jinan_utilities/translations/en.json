@@ -3,14 +3,14 @@
     "step": {
       "user": {
         "title": "Jinan Utilities",
-        "description": "Choose the service to add. Gas (Shandong Towngas) uses WeChat authorization without any SMS; water (Jinan Water) only needs the registered mobile number. The next step shows only the login methods supported by the service you pick here.",
+        "description": "Choose the service to add. Gas (Shandong Towngas) uses WeChat authorization without any SMS; water (Jinan Water) only needs the registered mobile number. The next step shows only the login methods supported by the service you pick here (2 for water).",
         "data": {
           "service": "Service"
         }
       },
       "method": {
         "title": "Choose a login method",
-        "description": "Selected: **{service}**. Only the login methods supported by this service are listed below.\n\nFor gas, WeChat authorization is recommended: authorize once, then the balance refreshes and the token renews automatically without SMS. The SMS-code option is kept for troubleshooting only (the official portal also fails to deliver the code).\n\nFor water, Phone only is recommended: just the registered mobile number is needed.\n\nTo switch service, cancel this flow and add the integration again.",
+        "description": "Selected: **{service}**. Only the login methods supported by this service are listed below.\n\nFor gas, WeChat authorization is recommended: authorize once, then the balance refreshes and the token renews automatically without SMS. The SMS-code option is kept for troubleshooting only (the official portal also fails to deliver the code).\n\nFor water there are only two methods: Phone only (recommended, just the registered mobile number) and Mobile + SMS code (backup).\n\nTo switch service, cancel this flow and add the integration again.",
         "data": {
           "login_method": "Login method"
         }
@@ -44,17 +44,9 @@
           "resend": "Resend SMS"
         }
       },
-      "water_captcha": {
-        "title": "Water portal password login",
-        "description": "**The Jinan Water image-captcha service is currently broken** (server-side GDI+ initialization failure). Please use Phone only or Mobile + SMS code instead.\n\n**If the image does not appear, [open it here]({captcha_url})**\n\n![captcha]({captcha_url})\n\n{error}",
-        "data": {
-          "password": "Portal password",
-          "kaptcha": "Image captcha"
-        }
-      },
       "manual": {
         "title": "Paste PC portal link / manual token (legacy gas)",
-        "description": "A bare gas account number cannot return any data (the gateway requires an access_token before it even reads the account number).\n\nGas (legacy, not recommended): open the Shandong Towngas WeChat official account > Online Hall > tap the top-right menu > Copy Link, then paste the FULL link below. If it contains tokenCode or code, the integration exchanges it for an access_token automatically. You can also paste the localStorage token object text (with access_token and refresh_token fields), or a bare access_token.\n\nGas (desktop): sign in at https://wt.shandongtowngas.com.cn/ , DevTools Network, copy token from any /openapi/uv1/ request.\n\nWater: prefer Phone only, this step is normally unnecessary.\n\n{error}",
+        "description": "A bare gas account number cannot return any data (the gateway requires an access_token before it even reads the account number).\n\nGas (legacy, not recommended): open the Shandong Towngas WeChat official account > Online Hall > tap the top-right menu > Copy Link, then paste the FULL link below. If it contains tokenCode or code, the integration exchanges it for an access_token automatically. You can also paste the localStorage token object text (with access_token and refresh_token fields), or a bare access_token.\n\nGas (desktop): sign in at https://wt.shandongtowngas.com.cn/ , DevTools Network, copy token from any /openapi/uv1/ request.\n\n{error}",
         "data": {
           "access_token": "WeChat link / tokenCode / access_token",
           "refresh_token": "refresh_token (optional)"
